@@ -1,0 +1,16 @@
+{
+  "dependencies": {
+    "@neon/config": "^1.9.6",
+    "@neon/env": "^1.6.6",
+    "@neondatabase/serverless": "^1.2.0"
+  },
+  "name": "quality-show",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node tests/funcional.js && node tests/regras.js",
+    "test:regras": "node tests/regras.js",
+    "test:perf": "node tests/performance.js",
+    "build": "node --check server.js && node --check lib/app.js && node --check \"api/[...rota].js\""
+  }
+}

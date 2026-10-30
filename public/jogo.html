@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rumo ao Milhão — Jogo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+
+<!-- Fundo de palco (feixes de refletores) -->
+<div class="palco" aria-hidden="true">
+  <div class="feixe a"></div><div class="feixe b"></div><div class="feixe c"></div><div class="feixe d"></div>
+</div>
+
+<section id="jogo" class="tela f0">
+  <div class="flash-faixa" id="flash-faixa"></div>
+
+  <div class="barra-topo">
+    <div class="marca">Rumo ao Milhão</div>
+    <button class="btn mini btn-sair" id="btn-sair">Sair</button>
+  </div>
+
+  <!-- Etapa 2: partida -->
+  <div id="etapa-jogo" hidden>
+    <div class="principal">
+      <div class="cabecalho">
+        <div class="led nome"><small>Participante</small><div class="valor" id="j-nome"></div></div>
+        <div class="centro">
+          <div class="timer-num" id="j-timer">90</div>
+          <div class="valendo" id="j-valendo">Valendo <b>0</b></div>
+        </div>
+        <div class="led" id="led-placar">
+          <small>Placar</small><div class="valor" id="j-placar">0</div>
+          <div class="ganho" id="j-ganho"></div>
+        </div>
+      </div>
+
+      <div class="faixas-barra" id="j-barra"></div>
+      <div class="seg-rotulos" id="j-rotulos"></div>
+
+      <div class="letreiro">
+        <div class="ordem" id="j-ordem"></div>
+        <div class="enunciado" id="j-enun"></div>
+      </div>
+
+      <div class="alts" id="j-alts"></div>
+
+      <div class="zona-acao" id="j-acao"></div>
+    </div>
+
+    <aside class="lateral">
+      <h3>Perguntas</h3>
+      <ol id="j-lista"></ol>
+    </aside>
+  </div>
+
+  <!-- Etapa 3: final -->
+  <div id="etapa-fim" hidden>
+    <div class="fim-titulo">Fim de jogo</div>
+    <div class="fim-nome" id="fim-nome"></div>
+    <div class="led"><small>Pontuação final</small><div class="valor" id="fim-pontos">0</div></div>
+    <div class="fim-acertos"><b id="fim-acertos">0</b> de <span id="fim-total">0</span> acertos</div>
+    <div class="fim-acertos">Total acumulado: <b id="fim-acum">0</b></div>
+    <div class="fim-botoes">
+      <button class="btn cheio" id="btn-voltar">Voltar ao início</button>
+    </div>
+  </div>
+</section>
+
+<script src="common.js"></script>
+<script>
+/* Etapas desta página: 'jogo' (partida) e 'fim' (resultado) */
+function mostrarEtapa(e){
+  $('etapa-jogo').hidden = e !== 'jogo';
+  $('etapa-fim').hidden = e !== 'fim';
+}
+
+/* Sai da partida: guarda o que já foi ganho e volta à página inicial */
+async function sair(){
+  pararTimer();
+  jogo.sessao++;           // invalida qualquer sequência assíncrona em andamento
+  await salvarPartida();
+  location.href = 'index.html';
+}
+
+/* ==========================================================
+   JOGO
+   ========================================================== */
+const jogo = {
+  sessao:0,          // contador para cancelar sequências assíncronas
+  dia:1,             // dia das perguntas desta partida (fixado ao abrir, não muda na virada)
+  nome:'',
+  matricula:'',      // chave do jogador no banco
+  salvo:true,        // pontos da partida atual já enviados ao banco?
+  acumulado:0,       // total de pontos da matrícula (vindo do banco)
+  idx:0,             // pergunta atual
+  placar:0,
+  acertos:0,
+  tempoMs:0,         // soma do tempo gasto nas respostas (desempate)
+  status:[],         // por pergunta: 'pendente' | 'acertou' | 'errou' | 'tempo'
+  ganhos:[],         // pontos ganhos por pergunta
+  fase:'ociosa',     // 'pergunta' | 'suspense' | 'revelado'
+  sel:-1,            // alternativa selecionada
+  faixa:0,           // faixa atual do timer
+  t0:0,              // instante de início do timer
+  raf:0
+};
+
+function iniciarPartida(nome){
+  jogo.sessao++;
+  jogo.nome = nome;
+  jogo.salvo = false;
+  jogo.idx = 0;
+  jogo.placar = 0;
+  jogo.acertos = 0;
+  jogo.tempoMs = 0;
+  jogo.status = perguntas.map(() => 'pendente');
+  jogo.ganhos = perguntas.map(() => 0);
+  $('j-nome').textContent = nome;
+  $('j-placar').textContent = '0';
+  montarBarraFaixas();
+  mostrarEtapa('jogo');
+  mostrarPergunta();
+}
+
+/* Barra do timer: 3 segmentos, um por faixa */
+function montarBarraFaixas(){
+  $('j-barra').innerHTML = [0,1,2].map(i => `<div class="seg s${i}" id="seg${i}"><i></i></div>`).join('');
+  $('j-rotulos').innerHTML = [0,1,2].map(i => `<span id="rot${i}">Faixa ${i+1} · ${fmt(valorFaixa(i))}</span>`).join('');
+}
+
+function mostrarPergunta(){
+  const p = perguntas[jogo.idx];
+  jogo.fase = 'pergunta';
+  jogo.sel = -1;
+  $('j-ordem').textContent = `Pergunta ${jogo.idx+1} de ${perguntas.length}`;
+  $('j-enun').textContent = p.enunciado;
+  $('j-alts').innerHTML = p.alts.map((a,i) => `
+    <button class="alt" data-i="${i}">
+      <span class="alt-in"><span class="letra">${LETRAS[i]}</span><span class="txt">${esc(a)}</span></span>
+    </button>`).join('');
+  $('j-acao').innerHTML = '';
+  renderLateral();
+  // reinicia timer
+  jogo.faixa = -1;
+  jogo.t0 = performance.now();
+  aplicarFaixa(0, false);
+  pararTimer();
+  jogo.raf = requestAnimationFrame(tick);
+}
+
+/* ---------- Timer ---------- */
+function pararTimer(){ cancelAnimationFrame(jogo.raf); jogo.raf = 0; }
+
+function faixaAtual(decorridoMs){
+  const dur = config.tempo * 1000;
+  return Math.min(2, Math.floor(decorridoMs / (dur/3)));
+}
+
+function tick(){
+  if(jogo.fase !== 'pergunta') return;
+  const dur = config.tempo * 1000;
+  const dec = performance.now() - jogo.t0;
+  const rest = Math.max(0, dur - dec);
+
+  $('j-timer').textContent = Math.ceil(rest/1000);
+  const vb = document.querySelector('#j-valendo b');
+  if(vb) vb.textContent = fmt(valorEm(dec / dur));
+  $('jogo').classList.toggle('urgente', rest <= 5000 && rest > 0);
+
+  // preenchimento de cada segmento (esvazia da esquerda para a direita)
+  const seg = dur/3;
+  for(let i=0;i<3;i++){
+    const inicio = i*seg, fim = (i+1)*seg;
+    const frac = dec >= fim ? 0 : dec <= inicio ? 1 : (fim - dec)/seg;
+    document.querySelector(`#seg${i} i`).style.width = (frac*100) + '%';
+  }
+
+  const f = faixaAtual(dec);
+  if(f !== jogo.faixa) aplicarFaixa(f, true);
+
+  if(rest <= 0){ tempoEsgotado(); return; }
+  jogo.raf = requestAnimationFrame(tick);
+}
+
+/* Troca de faixa: cor, valor em disputa e flash */
+function aplicarFaixa(f, animar){
+  jogo.faixa = f;
+  const el = $('jogo');
+  el.classList.remove('f0','f1','f2');
+  el.classList.add('f'+f);
+  for(let i=0;i<3;i++){
+    $('seg'+i).classList.toggle('ativo', i===f);
+    $('rot'+i).classList.toggle('ativo', i===f);
+  }
+  $('j-valendo').innerHTML = `Valendo <b>${fmt(valorEm(jogo.t0 ? (performance.now() - jogo.t0) / (config.tempo * 1000) : 0))}</b>`;
+  if(animar){
+    const v = $('j-valendo'), fl = $('flash-faixa');
+    v.classList.remove('troca'); fl.classList.remove('vai');
+    void v.offsetWidth;
+    v.classList.add('troca'); fl.classList.add('vai');
+  }
+}
+
+/* ---------- Seleção: clicar já responde ---------- */
+function clicarAlternativa(i){
+  if(jogo.fase !== 'pergunta') return;
+  jogo.sel = i;
+  confirmarResposta();
+}
+
+/* Jogador clicou numa alternativa: congela o timer, calcula faixa e inicia a revelação */
+async function confirmarResposta(){
+  if(jogo.fase !== 'pergunta') return;
+  const dec = performance.now() - jogo.t0;
+  jogo.tempoMs += Math.round(dec);
+  jogo.fase = 'suspense';
+  pararTimer();
+  $('jogo').classList.remove('urgente');
+  const sessao = jogo.sessao;
+  const p = perguntas[jogo.idx];
+  const botoes = document.querySelectorAll('#j-alts .alt');
+  botoes.forEach(b => b.disabled = true);
+  $('j-acao').innerHTML = '<div class="suspense-txt">Será que acertou?</div>';
+
+  // Momento 1: suspense — alternativa pisca em laranja 3x (~2s)
+  const escolhida = botoes[jogo.sel];
+  void escolhida.offsetWidth;
+  escolhida.classList.add('pisca');
+  await espera(2050);
+  if(sessao !== jogo.sessao) return;
+  escolhida.classList.remove('pisca');
+
+  // Momento 2: revelação
+  const acertou = jogo.sel === p.correta;
+  botoes.forEach((b,k) => { if(k !== jogo.sel && k !== p.correta) b.classList.add('apagada'); });
+  if(acertou){
+    const pts = valorEm(dec / (config.tempo * 1000));
+    escolhida.classList.add('certa');
+    jogo.status[jogo.idx] = 'acertou';
+    jogo.ganhos[jogo.idx] = pts;
+    jogo.acertos++;
+    mostrarResultado(true, `Resposta certa!`, pts);
+    renderLateral();
+    await animarPlacar(jogo.placar, jogo.placar + pts, pts);
+    if(sessao !== jogo.sessao) return;
+    jogo.placar += pts;
+  } else {
+    escolhida.classList.add('errada');
+    jogo.status[jogo.idx] = 'errou';
+    mostrarResultado(false, 'Resposta errada!', 0);
+    renderLateral();
+    await espera(1100);
+    if(sessao !== jogo.sessao) return;
+    botoes[p.correta].classList.add('certa-pisca');
+  }
+  finalizarRodada();
+}
+
+/* Tempo acabou: 0 pontos, pergunta perdida */
+async function tempoEsgotado(){
+  if(jogo.fase === 'suspense' || jogo.fase === 'revelado') return;
+  jogo.fase = 'suspense';
+  pararTimer();
+  $('jogo').classList.remove('urgente');
+  $('j-timer').textContent = '0';
+  const sessao = jogo.sessao;
+  const p = perguntas[jogo.idx];
+  const botoes = document.querySelectorAll('#j-alts .alt');
+  botoes.forEach(b => { b.disabled = true; b.classList.remove('sel'); });
+  jogo.status[jogo.idx] = 'tempo';
+  jogo.tempoMs += config.tempo * 1000;
+  mostrarResultado(false, 'Tempo esgotado!', 0);
+  renderLateral();
+  botoes.forEach((b,k) => { if(k !== p.correta) b.classList.add('apagada'); });
+  await espera(900);
+  if(sessao !== jogo.sessao) return;
+  botoes[p.correta].classList.add('certa-pisca');
+  finalizarRodada();
+}
+
+function mostrarResultado(ok, msg, pts){
+  $('j-acao').innerHTML = `<div class="resultado ${ok?'ok':'ruim'}"><div class="msg">${msg}</div><div id="slot-prox"></div></div>`;
+}
+
+/* Mostra o botão de avançar */
+function finalizarRodada(){
+  jogo.fase = 'revelado';
+  // errou ou estourou o tempo: o jogo acaba na hora
+  const ultima = jogo.idx >= perguntas.length - 1 || jogo.status[jogo.idx] !== 'acertou';
+  const slot = $('slot-prox');
+  if(slot) slot.innerHTML = `<button class="btn cheio" id="btn-prox">${ultima ? 'Ver resultado' : 'Próxima pergunta'}</button>`;
+  const b = $('btn-prox'); if(b) b.focus();
+}
+
+function proximaPergunta(){
+  if(jogo.fase !== 'revelado') return;
+  if(jogo.idx >= perguntas.length - 1 || jogo.status[jogo.idx] !== 'acertou'){ mostrarFim(); return; }
+  jogo.idx++;
+  mostrarPergunta();
+}
+
+/* Momento 3: contador do placar sobe até o novo valor */
+function animarPlacar(de, para, pts){
+  return new Promise(resolve => {
+    const led = $('led-placar'), el = $('j-placar'), g = $('j-ganho');
+    g.textContent = '+' + fmt(pts);
+    g.classList.remove('vai'); void g.offsetWidth; g.classList.add('vai');
+    led.classList.add('sobe');
+    const dur = 1800, ini = performance.now();
+    const sessao = jogo.sessao;
+    (function passo(agora){
+      if(sessao !== jogo.sessao){ led.classList.remove('sobe'); return resolve(); }
+      const t = Math.min(1, (agora - ini) / dur);
+      const e = 1 - Math.pow(1 - t, 3); // ease-out
+      el.textContent = fmt(de + (para - de) * e);
+      if(t < 1) requestAnimationFrame(passo);
+      else { led.classList.remove('sobe'); resolve(); }
+    })(ini);
+  });
+}
+
+/* Lista lateral de perguntas */
+function renderLateral(){
+  const rot = { pendente:'', acertou:'Acertou', errou:'Errou', tempo:'Tempo' };
+  $('j-lista').innerHTML = perguntas.map((_,i) => {
+    const st = jogo.status[i];
+    const cls = st !== 'pendente' ? st : (i === jogo.idx ? 'atual' : '');
+    const label = st !== 'pendente' ? rot[st] : (i === jogo.idx ? 'Agora' : '');
+    const pt = st === 'acertou' ? '+' + fmt(jogo.ganhos[i]) : '';
+    return `<li class="${cls}"><span class="n">${i+1}</span><span class="st">${label}</span><span class="pt">${pt}</span></li>`;
+  }).join('');
+}
+
+/* Soma os pontos da partida na matrícula (uma única vez por partida) */
+async function salvarPartida(){
+  if(jogo.salvo || !jogo.matricula) return;
+  jogo.salvo = true;
+  try {
+    const r = await api('POST', '/api/partida', {
+      matricula:jogo.matricula, dia:jogo.dia, pontos:Math.round(jogo.placar), acertos:jogo.acertos, total:perguntas.length, tempoMs:Math.round(jogo.tempoMs)
+    });
+    jogo.acumulado = r.jogador.pontosTotal;
+  } catch(e){
+    jogo.salvo = false;
+    $('fim-acum').textContent = e.message;
+    console.error(e);
+    return;
+  }
+  $('fim-acum').textContent = fmt(jogo.acumulado);
+}
+
+/* ---------- Tela final ---------- */
+function mostrarFim(){
+  pararTimer();
+  jogo.fase = 'fim';
+  $('fim-acum').textContent = '...';
+  salvarPartida();
+  const eliminado = jogo.status.includes('errou') || jogo.status.includes('tempo');
+  document.querySelector('.fim-titulo').textContent = eliminado ? 'Você perdeu!' : 'Fim de jogo';
+  $('fim-nome').textContent = jogo.nome;
+  $('fim-pontos').textContent = fmt(jogo.placar);
+  $('fim-acertos').textContent = jogo.acertos;
+  $('fim-total').textContent = perguntas.length;
+  mostrarEtapa('fim');
+}
+
+/* ==========================================================
+   EVENTOS
+   ========================================================== */
+$('btn-sair').addEventListener('click', sair);
+$('j-alts').addEventListener('click', ev => {
+  const b = ev.target.closest('.alt'); if(b && !b.disabled) clicarAlternativa(Number(b.dataset.i));
+});
+$('j-acao').addEventListener('click', ev => {
+  if(ev.target.id === 'btn-prox') proximaPergunta();
+});
+$('btn-voltar').addEventListener('click', sair);
+
+/* Início: precisa de um jogador identificado na página inicial */
+(async () => {
+  let j = null;
+  try { j = JSON.parse(sessionStorage.getItem('jogador')); } catch {}
+  if(!j || !j.matricula){ location.replace('index.html'); return; }
+  jogo.matricula = j.matricula;
+  jogo.acumulado = j.pontosTotal;
+  try {
+    const e = await api('GET', '/api/estado');
+    perguntas.splice(0, perguntas.length, ...e.perguntas);
+    Object.assign(config, e.config);
+    jogo.dia = e.dia;
+  } catch(err){ alert(err.message); location.replace('index.html'); return; }
+  if(!perguntas.length){ alert('Nenhuma pergunta cadastrada. Use a engrenagem na página inicial.'); location.replace('index.html'); return; }
+  try { await api('POST', '/api/partida/iniciar', { matricula:jogo.matricula, dia:jogo.dia }); }
+  catch(err){ alert(err.message); location.replace('index.html'); return; }
+  iniciarPartida(j.nome);
+})();
+</script>
+</body>
+</html>

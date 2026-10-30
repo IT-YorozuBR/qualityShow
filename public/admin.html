@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rumo ao Milhão — Editar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+
+<!-- Fundo de palco (feixes de refletores) -->
+<div class="palco" aria-hidden="true">
+  <div class="feixe a"></div><div class="feixe b"></div><div class="feixe c"></div><div class="feixe d"></div>
+</div>
+
+<!-- ============ LOGIN DO ADMINISTRADOR ============ -->
+<main id="login-admin" class="tela" hidden>
+  <form class="bloco login-caixa" id="form-login" novalidate>
+    <h2>Acesso do administrador</h2>
+    <label class="campo" for="l-usuario">Usuário</label>
+    <input type="text" id="l-usuario" autocomplete="username">
+    <label class="campo" for="l-senha">Senha</label>
+    <input type="password" id="l-senha" autocomplete="current-password">
+    <div class="erro-form" id="l-erro" role="alert" hidden></div>
+    <div class="acoes">
+      <button type="submit" class="btn cheio" id="l-entrar">Entrar</button>
+      <a class="btn" href="index.html">Voltar</a>
+    </div>
+  </form>
+</main>
+
+<!-- ============ PAINEL DO APRESENTADOR ============ -->
+<main id="painel" class="tela" hidden>
+  <header class="painel-topo">
+    <h1>Quality show</h1>
+    <a class="btn mini" href="index.html">Voltar ao início</a>
+  </header>
+
+  <div class="painel-grade">
+    <!-- Coluna esquerda: perguntas -->
+    <div>
+      <div class="abas" id="abas-dia">
+        <button class="btn mini ativo" data-dia="1">Perguntas do Dia 1</button>
+        <button class="btn mini" data-dia="2">Perguntas do Dia 2</button>
+      </div>
+
+      <section class="bloco">
+        <h2 id="form-titulo">Nova pergunta</h2>
+        <form id="form-perg" novalidate>
+          <label class="campo" for="f-enun">Enunciado</label>
+          <textarea id="f-enun" maxlength="300"></textarea>
+
+          <label class="campo">Alternativas (marque a correta)</label>
+          <div id="f-alts"></div>
+          <p class="dica">O círculo marcado em verde indica a alternativa correta.</p>
+
+          <div class="erro-form" id="f-erro" role="alert" hidden></div>
+          <div class="acoes">
+            <button type="submit" class="btn cheio" id="f-salvar">Adicionar pergunta</button>
+            <button type="button" class="btn" id="f-cancelar" hidden>Cancelar edição</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="bloco">
+        <h2>Perguntas do dia <span id="dia-rot">1</span> (<span id="qtd-perg">0</span>)</h2>
+        <ul class="lista-perg" id="lista-perg"></ul>
+      </section>
+    </div>
+
+    <!-- Coluna direita: pontuação -->
+    <div>
+      <section class="bloco">
+        <h2>Virada do dia</h2>
+        <label class="campo" for="c-virada">Data e hora em que começa o Dia 2</label>
+        <input type="datetime-local" id="c-virada">
+        <div class="acoes"><button type="button" class="btn mini" id="c-virada-limpar">Remover virada</button></div>
+        <p class="dica">Antes desse horário o jogo usa as perguntas do Dia 1; depois, as do Dia 2. Quem já estava jogando o Dia 1 na hora da virada termina a partida normalmente e os pontos contam para o Dia 1. Quem começar depois da virada joga o Dia 2.</p>
+        <div class="virada-status" id="virada-status"></div>
+      </section>
+
+      <section class="bloco">
+        <h2>Liberar nova tentativa</h2>
+        <p class="dica">Cada matrícula joga uma vez por dia. Se alguém perdeu a partida por problema técnico, libere aqui: a partida desse dia é apagada e a pessoa pode jogar de novo.</p>
+        <label class="campo" for="lib-mat">Matrícula</label>
+        <input type="text" id="lib-mat" maxlength="20" autocomplete="off">
+        <label class="campo" for="lib-dia">Dia</label>
+        <select id="lib-dia"><option value="1">Dia 1</option><option value="2">Dia 2</option></select>
+        <div class="acoes"><button type="button" class="btn" id="lib-btn">Liberar</button></div>
+        <div class="virada-status" id="lib-msg"></div>
+      </section>
+
+      <section class="bloco">
+        <h2>Pontuação e tempo</h2>
+        <label class="campo" for="c-total">Pontuação total do jogo</label>
+        <input type="number" id="c-total" min="1" step="1000">
+        <label class="campo" for="c-tempo">Tempo por pergunta (segundos)</label>
+        <input type="number" id="c-tempo" min="3" max="600" step="3">
+
+        <label class="campo">Percentual de pontos conforme o tempo passa</label>
+        <div class="faixas-cfg">
+          <div><label class="campo" for="c-p0">Início (%)</label><input type="number" id="c-p0" min="0" max="100"><div class="tempo-faixa" id="t-f0"></div></div>
+          <div><label class="campo" for="c-p1">Metade (%)</label><input type="number" id="c-p1" min="0" max="100"><div class="tempo-faixa" id="t-f1"></div></div>
+          <div><label class="campo" for="c-p2">Fim (%)</label><input type="number" id="c-p2" min="0" max="100"><div class="tempo-faixa" id="t-f2"></div></div>
+        </div>
+        <p class="dica">Os pontos descem de forma contínua ao longo do tempo: valem o percentual de "Início" ao abrir a pergunta, o de "Metade" na metade do tempo e o de "Fim" quando o tempo está acabando. Quem responde mais rápido ganha mais, o que praticamente elimina empates. Tempo esgotado vale 0 ponto.</p>
+
+        <div class="resumo" id="resumo"></div>
+      </section>
+
+    </div>
+  </div>
+</main>
+
+<script src="common.js"></script>
+<script>
+function avisoPainel(msg){ const e = $('f-erro'); e.textContent = 'Banco de dados: ' + msg; e.hidden = false; }
+
+/* ==========================================================
+   PAINEL DO APRESENTADOR
+   ========================================================== */
+const todas = { 1:[], 2:[] };   // perguntas de cada dia; `perguntas` espelha o dia em edição
+let editandoIdx = -1;      // índice da pergunta em edição (-1 = nova)
+let excluirPendente = -1;  // índice aguardando segundo clique para excluir
+let excluirTimer = null;
+
+/* Monta as 4 linhas de alternativas do formulário */
+function montarCamposAlts(){
+  $('f-alts').innerHTML = LETRAS.map((l,i) => `
+    <div class="alt-linha">
+      <label class="radio-letra" title="Marcar ${l} como correta">
+        <input type="radio" name="correta" value="${i}" aria-label="Alternativa ${l} é a correta">
+        <span>${l}</span>
+      </label>
+      <input type="text" id="f-alt${i}" maxlength="120" placeholder="Alternativa ${l}" aria-label="Texto da alternativa ${l}">
+    </div>`).join('');
+}
+
+function limparForm(){
+  editandoIdx = -1;
+  $('f-enun').value = '';
+  LETRAS.forEach((_,i) => $('f-alt'+i).value = '');
+  document.querySelectorAll('input[name=correta]').forEach(r => r.checked = false);
+  $('f-erro').hidden = true;
+  $('form-titulo').textContent = 'Nova pergunta';
+  $('f-salvar').textContent = 'Adicionar pergunta';
+  $('f-cancelar').hidden = true;
+}
+
+/* Validação: enunciado, 4 alternativas e correta marcada */
+function salvarPergunta(ev){
+  ev.preventDefault();
+  const enunciado = $('f-enun').value.trim();
+  const alts = LETRAS.map((_,i) => $('f-alt'+i).value.trim());
+  const marcada = document.querySelector('input[name=correta]:checked');
+  let erro = '';
+  if(!enunciado) erro = 'Escreva o enunciado da pergunta.';
+  else if(alts.some(a => !a)) erro = 'Preencha as 4 alternativas (A, B, C e D).';
+  else if(!marcada) erro = 'Marque qual alternativa é a correta.';
+  if(erro){ const e = $('f-erro'); e.textContent = erro; e.hidden = false; return; }
+
+  const nova = { enunciado, alts, correta:Number(marcada.value) };
+  if(editandoIdx >= 0) perguntas[editandoIdx] = nova; else perguntas.push(nova);
+  limparForm();
+  renderPainel();
+  salvarPerguntas();
+}
+
+function editarPergunta(i){
+  const p = perguntas[i];
+  editandoIdx = i;
+  $('f-enun').value = p.enunciado;
+  p.alts.forEach((a,k) => $('f-alt'+k).value = a);
+  document.querySelector(`input[name=correta][value="${p.correta}"]`).checked = true;
+  $('f-erro').hidden = true;
+  $('form-titulo').textContent = 'Editando pergunta ' + (i+1);
+  $('f-salvar').textContent = 'Salvar alterações';
+  $('f-cancelar').hidden = false;
+  $('f-enun').focus();
+  $('f-enun').scrollIntoView({behavior:'smooth', block:'center'});
+  renderLista();
+}
+
+/* Exclusão com confirmação por segundo clique (sem diálogos do navegador) */
+function excluirPergunta(i){
+  if(excluirPendente !== i){
+    excluirPendente = i;
+    clearTimeout(excluirTimer);
+    excluirTimer = setTimeout(() => { excluirPendente = -1; renderLista(); }, 3000);
+    renderLista();
+    return;
+  }
+  clearTimeout(excluirTimer);
+  excluirPendente = -1;
+  perguntas.splice(i,1);
+  if(editandoIdx === i) limparForm();
+  else if(editandoIdx > i) editandoIdx--;
+  renderPainel();
+  salvarPerguntas();
+}
+
+function moverPergunta(i, d){
+  const j = i + d;
+  if(j < 0 || j >= perguntas.length) return;
+  [perguntas[i], perguntas[j]] = [perguntas[j], perguntas[i]];
+  if(editandoIdx === i) editandoIdx = j; else if(editandoIdx === j) editandoIdx = i;
+  renderPainel();
+  salvarPerguntas();
+}
+
+function renderLista(){
+  $('qtd-perg').textContent = perguntas.length;
+  const ul = $('lista-perg');
+  if(!perguntas.length){ ul.innerHTML = '<li class="vazio" style="display:block">Nenhuma pergunta cadastrada.</li>'; return; }
+  ul.innerHTML = perguntas.map((p,i) => `
+    <li class="${i===editandoIdx?'editando':''}">
+      <div class="num">${i+1}</div>
+      <div class="enun">${esc(p.enunciado)}<small>Correta: ${LETRAS[p.correta]}) ${esc(p.alts[p.correta])}</small></div>
+      <div class="botoes">
+        <button class="btn mini" data-acao="sobe" data-i="${i}" ${i===0?'disabled':''} aria-label="Subir">Subir</button>
+        <button class="btn mini" data-acao="desce" data-i="${i}" ${i===perguntas.length-1?'disabled':''} aria-label="Descer">Descer</button>
+        <button class="btn mini" data-acao="edita" data-i="${i}">Editar</button>
+        <button class="btn mini perigo" data-acao="exclui" data-i="${i}">${excluirPendente===i?'Confirmar?':'Excluir'}</button>
+      </div>
+    </li>`).join('');
+}
+
+/* Lê os campos de configuração, normaliza e atualiza o resumo */
+function lerConfig(){
+  const total = Number($('c-total').value);
+  const tempo = Number($('c-tempo').value);
+  config.total = total > 0 ? total : 1;
+  config.tempo = tempo >= 3 ? Math.min(600, tempo) : 3;
+  for(let i=0;i<3;i++){
+    const v = Number($('c-p'+i).value);
+    config.pct[i] = Math.max(0, Math.min(100, isNaN(v) ? 0 : v));
+  }
+  const v = $('c-virada').value;
+  config.virada = v ? new Date(v).toISOString() : null;
+  renderResumo();
+}
+
+/* ISO → valor do campo datetime-local (horário local) */
+function paraCampoData(iso){
+  if(!iso) return '';
+  const d = new Date(iso), z = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`;
+}
+
+function renderResumo(){
+  const st = $('virada-status');
+  if(!config.virada){ st.textContent = 'Sem virada definida: o jogo fica no Dia 1.'; st.className = 'virada-status'; }
+  else {
+    const jaVirou = Date.now() >= Date.parse(config.virada);
+    const dia2 = diaEdicao === 2 ? perguntas : todas[2];
+    st.textContent = (jaVirou ? 'Dia 2 em andamento.' : 'Dia 1 em andamento. Virada em ' + new Date(config.virada).toLocaleString('pt-BR') + '.')
+      + (!dia2.length ? ' Atenção: o Dia 2 ainda não tem perguntas.' : '');
+    st.className = 'virada-status' + (!dia2.length ? ' aviso' : '');
+  }
+  const n = perguntas.length;
+  const t = config.tempo / 3;
+  const f = x => (Math.round(x*10)/10).toString().replace('.',',');
+  ['0s', f(config.tempo/2) + 's', f(config.tempo) + 's'].forEach((x,i) => $('t-f'+i).textContent = x);
+  $('resumo').innerHTML = n
+    ? `<b>${n}</b> perguntas · <b>${fmt(pontosPorPergunta())}</b> pts cada · no início: <b>${fmt(valorEm(0))}</b> · na metade: <b>${fmt(valorEm(.5))}</b> · no fim: <b>${fmt(valorEm(1))}</b>`
+    : 'Cadastre ao menos uma pergunta para calcular a pontuação.';
+}
+
+function renderPainel(){ renderLista(); renderResumo(); }
+
+montarCamposAlts();
+
+/* Troca o dia cujas perguntas estão sendo editadas */
+$('abas-dia').addEventListener('click', ev => {
+  const b = ev.target.closest('button'); if(!b) return;
+  const novo = Number(b.dataset.dia);
+  if(novo === diaEdicao) return;
+  todas[diaEdicao] = perguntas.slice();
+  diaEdicao = novo;
+  perguntas.splice(0, perguntas.length, ...todas[novo]);
+  document.querySelectorAll('#abas-dia button').forEach(x => x.classList.toggle('ativo', Number(x.dataset.dia) === novo));
+  $('dia-rot').textContent = novo;
+  limparForm();
+  renderPainel();
+});
+$('lib-btn').addEventListener('click', async () => {
+  const msg = $('lib-msg');
+  try {
+    await api('POST', '/api/admin/liberar', { matricula:$('lib-mat').value, dia:Number($('lib-dia').value) });
+    msg.textContent = 'Liberado. A pessoa já pode jogar esse dia de novo.'; msg.className = 'virada-status';
+    $('lib-mat').value = '';
+  } catch(e){ msg.textContent = e.message; msg.className = 'virada-status aviso'; }
+});
+$('c-virada-limpar').addEventListener('click', () => { $('c-virada').value = ''; lerConfig(); salvarConfig(); });
+
+$('form-perg').addEventListener('submit', salvarPergunta);
+$('f-cancelar').addEventListener('click', () => { limparForm(); renderLista(); });
+$('lista-perg').addEventListener('click', ev => {
+  const b = ev.target.closest('button[data-acao]'); if(!b) return;
+  const i = Number(b.dataset.i);
+  ({ sobe:() => moverPergunta(i,-1), desce:() => moverPergunta(i,1),
+     edita:() => editarPergunta(i), exclui:() => excluirPergunta(i) })[b.dataset.acao]();
+});
+['c-total','c-tempo','c-p0','c-p1','c-p2','c-virada'].forEach(id => $(id).addEventListener('input', () => { lerConfig(); salvarConfig(); }));
+
+/* Carrega perguntas e configuração do banco e preenche o painel */
+function preencherConfig(){
+  $('c-total').value = config.total;
+  $('c-tempo').value = config.tempo;
+  config.pct.forEach((p,i) => $('c-p'+i).value = p);
+  $('c-virada').value = paraCampoData(config.virada);
+}
+function carregarPainel(){
+  $('login-admin').hidden = true;
+  $('painel').hidden = false;
+  preencherConfig();
+  renderPainel();
+  api('GET', '/api/admin/perguntas').then(e => {
+    todas[1] = e.perguntas[1]; todas[2] = e.perguntas[2];
+    perguntas.splice(0, perguntas.length, ...todas[diaEdicao]);
+    Object.assign(config, e.config);
+    preencherConfig();
+    renderPainel();
+  }).catch(e => avisoPainel(e.message));
+}
+
+/* ---------- Login ---------- */
+function mostrarLogin(){
+  $('painel').hidden = true;
+  $('login-admin').hidden = false;
+  $('l-usuario').focus();
+}
+
+$('form-login').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const erro = $('l-erro'), btn = $('l-entrar');
+  erro.hidden = true;
+  btn.disabled = true;
+  try {
+    const r = await api('POST', '/api/admin/login', { usuario:$('l-usuario').value.trim(), senha:$('l-senha').value });
+    sessionStorage.setItem('adminToken', r.token);
+    $('l-senha').value = '';
+    carregarPainel();
+  } catch(e){
+    erro.textContent = e.message;
+    erro.hidden = false;
+  }
+  btn.disabled = false;
+});
+
+/* Já tem sessão válida nesta aba? Entra direto; senão pede o login */
+api('GET', '/api/admin/sessao').then(carregarPainel).catch(mostrarLogin);
+</script>
+</body>
+</html>

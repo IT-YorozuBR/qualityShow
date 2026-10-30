@@ -1,0 +1,8 @@
+.neon
+node_modules/
+.env*
+.vercel
+*.db
+*.db-shm
+*.db-wal
+tests/.backup-banco.json

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quality show</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+
+<!-- Fundo de palco (feixes de refletores) -->
+<div class="palco" aria-hidden="true">
+  <div class="feixe a"></div><div class="feixe b"></div><div class="feixe c"></div><div class="feixe d"></div>
+</div>
+
+<a class="engrenagem" href="admin.html" title="Editar perguntas e configurações" aria-label="Editar perguntas e configurações">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="3"/>
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+  </svg>
+</a>
+
+<main id="inicio" class="tela">
+  <div id="etapa-nome">
+    <h1>Quality<em>Show</em></h1>
+    <div class="campo-nome">
+      <label class="rotulo" for="in-matricula">Matrícula</label>
+      <input type="text" id="in-matricula" maxlength="20" autocomplete="off">
+    </div>
+    <div class="campo-nome" id="campo-nome" hidden>
+      <label class="rotulo" for="in-nome">Seu nome</label>
+      <input type="text" id="in-nome" maxlength="24" autocomplete="off">
+    </div>
+    <div class="erro-form campo-nome" id="login-erro" role="alert" hidden></div>
+    <button class="btn cheio grande" id="btn-comecar" style="max-width:520px">Iniciar jogo</button>
+    <button class="btn grande btn-rank" id="btn-rank">Placar de líderes</button>
+  </div>
+</main>
+
+<div class="modal" id="modal-rank" hidden>
+  <div class="modal-caixa" role="dialog" aria-label="Placar de líderes">
+    <h2>Placar de líderes</h2>
+    <div class="abas" id="abas-rank">
+      <button class="btn mini ativo" data-dia="">Geral</button>
+      <button class="btn mini" data-dia="1">Dia 1</button>
+      <button class="btn mini" data-dia="2">Dia 2</button>
+    </div>
+    <ol class="rank" id="lista-rank"></ol>
+    <button class="btn cheio" id="fechar-rank">Fechar</button>
+  </div>
+</div>
+
+<script src="common.js"></script>
+<script>
+/* Entra com a matrícula: o servidor cria o cadastro ou recupera o existente */
+$('btn-comecar').addEventListener('click', async () => {
+  const erro = $('login-erro'), btn = $('btn-comecar');
+  erro.hidden = true;
+  btn.disabled = true;
+  try {
+    const r = await api('POST', '/api/login', { matricula:$('in-matricula').value, nome:$('in-nome').value });
+    if(r.jogou){
+      erro.textContent = `Você já jogou o Dia ${r.dia}. Cada matrícula joga uma vez por dia.`;
+      erro.hidden = false;
+      btn.disabled = false;
+      return;
+    }
+    sessionStorage.setItem('jogador', JSON.stringify(r.jogador));
+    location.href = 'jogo.html';
+  } catch(e){
+    // matrícula nova (404): pede o nome e espera o segundo clique
+    if(e.status === 404 && $('campo-nome').hidden){
+      $('campo-nome').hidden = false;
+      $('in-nome').focus();
+    }
+    erro.textContent = e.message;
+    erro.hidden = false;
+    btn.disabled = false;
+  }
+});
+// mudou a matrícula: esconde o nome de novo, pois pode ser uma já cadastrada
+$('in-matricula').addEventListener('input', () => {
+  $('campo-nome').hidden = true;
+  $('in-nome').value = '';
+  $('login-erro').hidden = true;
+});
+['in-matricula','in-nome'].forEach(id => $(id).addEventListener('keydown', ev => { if(ev.key === 'Enter') $('btn-comecar').click(); }));
+
+/* Placar de líderes: todos os jogadores, do maior para o menor total */
+async function abrirRank(dia = ''){
+  document.querySelectorAll('#abas-rank button').forEach(b => b.classList.toggle('ativo', b.dataset.dia === dia));
+  const lista = $('lista-rank');
+  lista.innerHTML = '<li class="vazio">Carregando...</li>';
+  $('modal-rank').hidden = false;
+  try {
+    const { jogadores } = await api('GET', '/api/ranking' + (dia ? '?dia=' + dia : ''));
+    lista.innerHTML = jogadores.length
+      ? jogadores.map((j,i) => `<li class="rk"><span class="pos">${i+1}º</span><span class="nm">${esc(j.nome)}</span><span class="pts">${fmt(j.pontosTotal)}</span></li>`).join('')
+      : '<li class="vazio">Ninguém jogou neste período.</li>';
+  } catch(e){ lista.innerHTML = `<li class="vazio">${esc(e.message)}</li>`; }
+}
+$('btn-rank').addEventListener('click', () => abrirRank());
+$('abas-rank').addEventListener('click', ev => { const b = ev.target.closest('button'); if(b) abrirRank(b.dataset.dia); });
+$('fechar-rank').addEventListener('click', () => { $('modal-rank').hidden = true; });
+$('modal-rank').addEventListener('click', ev => { if(ev.target === ev.currentTarget) ev.currentTarget.hidden = true; });
+document.addEventListener('keydown', ev => { if(ev.key === 'Escape') $('modal-rank').hidden = true; });
+$('in-matricula').focus();
+</script>
+</body>
+</html>
