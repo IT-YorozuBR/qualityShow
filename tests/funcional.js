@@ -39,7 +39,7 @@ executar(async ({ c, A, sql }) => {
   }
   t('nome com 25 caracteres rejeitado', (await c.post('/api/login', { matricula:'TST002', nome:'n'.repeat(25) })).status === 400);
   t('nome só com espaços → pede nome (404)', (await c.post('/api/login', { matricula:'TST002', nome:'   ' })).status === 404);
-  r = await c.post('/api/login', { matricula:'TST003', nome:"Robert'); DROP TABLE jogadores;--" });
+  r = await c.post('/api/login', { matricula:'TST003', nome:"x'; DROP TABLE j;--" });
   t('nome com SQL é guardado como texto', r.status === 200 && r.json.jogador.nome.includes('DROP TABLE'));
   t('tabela jogadores continua existindo', (await c.get('/api/ranking')).status === 200);
   t('JSON inválido → 400', (await c.bruto('/api/login', '{quebrado')).status === 400);

@@ -8,9 +8,14 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
+    "dev": "node server.js --local",
+    "dev:perguntas": "node scripts/carregar-perguntas-exemplo.js --local",
     "test": "node tests/funcional.js && node tests/regras.js",
     "test:regras": "node tests/regras.js",
     "test:perf": "node tests/performance.js",
     "build": "node --check server.js && node --check lib/app.js && node --check \"api/[...rota].js\""
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13"
   }
 }

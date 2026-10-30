@@ -1,9 +1,10 @@
 /* Carrega perguntas de exemplo (setor de qualidade industrial) nos dois dias.
-   Substitui as perguntas existentes de cada dia.  Uso: node scripts/carregar-perguntas-exemplo.js */
+   Substitui as perguntas existentes de cada dia.
+   Uso: npm run dev:perguntas  (banco local)   |   node scripts/carregar-perguntas-exemplo.js  (Neon real) */
 const path = require('node:path');
 try { process.loadEnvFile(path.join(__dirname, '..', '.env.local')); } catch {}
-const { neon } = require('@neondatabase/serverless');
-const sql = neon(process.env.DATABASE_URL);
+if(process.argv.includes('--local')) process.env.BANCO_LOCAL = '1';
+const sql = require('../lib/db');
 
 const DIA1 = [
   { enunciado:'O Diagrama de Ishikawa, também chamado de "espinha de peixe", é usado principalmente para quê?',
@@ -37,6 +38,7 @@ const gravar = (lista, dia) => sql.transaction([
 ]);
 
 (async () => {
+  await require('../lib/app').iniciarBanco();   // garante as tabelas (banco local novo)
   await gravar(DIA1, 1);
   await gravar(DIA2, 2);
   const [r] = await sql`SELECT COUNT(*) FILTER (WHERE dia=1)::int AS d1, COUNT(*) FILTER (WHERE dia=2)::int AS d2 FROM perguntas`;

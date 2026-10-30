@@ -1,16 +1,21 @@
 /* Infraestrutura dos testes: sobe um servidor com credenciais de admin SÓ de teste,
-   faz backup do banco antes e restaura no fim (rode com DATABASE_URL em .env.local). */
-const { spawn } = require('node:child_process');
+   faz backup do banco antes e restaura no fim.
+   Por padrão usa o banco LOCAL (PGlite em .dados-teste/testes, recriado a cada execução) — não toca no Neon.
+   BANCO_LOCAL=0 npm test usa o Neon de .env.local: só faça isso num branch de teste, sem ninguém jogando. */
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const RAIZ = path.join(__dirname, '..');
 try { process.loadEnvFile(path.join(RAIZ, '.env.local')); } catch {}
-if(!process.env.DATABASE_URL){ console.error('Defina DATABASE_URL (.env.local).'); process.exit(1); }
-
-const { neon } = require('@neondatabase/serverless');
-const sql = neon(process.env.DATABASE_URL);
+const LOCAL = process.env.BANCO_LOCAL !== '0';
+process.env.BANCO_LOCAL = LOCAL ? '1' : '0';
+if(LOCAL){
+  process.env.BANCO_LOCAL_DIR = path.join(RAIZ, '.dados-teste', 'testes');
+  fs.rmSync(process.env.BANCO_LOCAL_DIR, { recursive:true, force:true });
+}
+const sql = require('../lib/db');
+const { iniciarBanco } = require('../lib/app');
 
 const SENHA_TESTE = crypto.randomBytes(12).toString('hex');   // descartável, vale só para este processo
 const SALT = crypto.randomBytes(16);
@@ -43,13 +48,13 @@ async function restaurar(b = JSON.parse(fs.readFileSync(ARQ_BACKUP, 'utf8'))){
   fs.rmSync(ARQ_BACKUP, { force:true });
 }
 
+/* Servidor no MESMO processo dos testes (o PGlite só admite um processo); devolve { kill() } */
 async function subirServidor(porta){
-  const proc = spawn(process.execPath, ['server.js'], { cwd:RAIZ, env:{ ...process.env, ...ENV_TESTE, PORT:String(porta) }, stdio:['ignore','pipe','pipe'] });
-  let saida = '';
-  proc.stdout.on('data', d => saida += d); proc.stderr.on('data', d => saida += d);
-  for(let i = 0; i < 50 && !saida.includes('http://'); i++) await new Promise(r => setTimeout(r, 100));
-  if(!saida.includes('http://')) throw new Error('Servidor não subiu: ' + saida);
-  return proc;
+  Object.assign(process.env, ENV_TESTE, { PORT:String(porta) });
+  const servidor = require('../server.js');
+  for(let i = 0; i < 100 && !servidor.listening; i++) await new Promise(r => setTimeout(r, 100));
+  if(!servidor.listening) throw new Error('Servidor não subiu.');
+  return { kill(){ servidor.closeAllConnections(); servidor.close(); } };
 }
 
 function criarCliente(base){
@@ -72,6 +77,7 @@ async function tokenAdmin(c, senha = SENHA_TESTE){
 /* Executa `corpo({ c, A, sql })` com backup/restauração garantidos */
 async function executar(corpo){
   const porta = 3100 + Math.floor(Math.random() * 800);
+  await iniciarBanco();   // cria as tabelas (banco local novo)
   await fazerBackup();
   let proc, codigo = 0;
   const limpar = async () => { try { proc && proc.kill(); } catch {} await restaurar(); };
@@ -86,4 +92,4 @@ async function executar(corpo){
   return codigo;
 }
 
-module.exports = { executar, sql, tokenAdmin, SENHA_TESTE, ENV_TESTE };
+module.exports = { executar, subirServidor, iniciarBanco, sql, tokenAdmin, SENHA_TESTE, ENV_TESTE };

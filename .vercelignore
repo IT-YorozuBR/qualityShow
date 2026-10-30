@@ -3,3 +3,4 @@ milhao.db*
 .env*
 .neon
 neon.ts
+.dados-teste

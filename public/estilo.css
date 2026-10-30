@@ -158,6 +158,23 @@ input:focus,textarea:focus{border-color:var(--ouro)}
 /* Timer */
 .centro{text-align:center;min-width:clamp(150px,22vw,280px)}
 .timer-num{font-family:var(--fonte-titulo);font-size:clamp(64px,12vw,150px);line-height:.9;color:var(--fc);text-shadow:0 0 28px var(--fc);font-variant-numeric:tabular-nums;transition:color .4s,text-shadow .4s}
+.timer-linha{display:flex;align-items:center;justify-content:center;gap:clamp(8px,1.6vw,18px)}
+.ampulheta{height:clamp(52px,9vw,120px);width:auto;flex:none;color:var(--fc);filter:drop-shadow(0 0 10px var(--fc));transition:color .4s}
+.amp-voo{position:fixed;z-index:60;pointer-events:none;margin:0;filter:drop-shadow(0 0 28px var(--fc))}
+/* Abertura da pergunta: fundo escurecido, moldura e clarão do impacto */
+.amp-cena{position:fixed;inset:0;z-index:55;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 50%,rgba(10,16,70,.82),rgba(0,0,0,.93))}
+.amp-moldura{box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;align-items:center;border:4px solid var(--fc);border-radius:22px;outline:2px solid var(--fc);outline-offset:9px;background:rgba(14,20,90,.55);box-shadow:0 0 44px var(--fc),inset 0 0 44px rgba(255,200,0,.12);max-width:92vw}
+.amp-faixa-txt{height:60px;display:flex;align-items:center;justify-content:center;text-align:center;padding:0 12px}
+.amp-titulo{font-family:var(--fonte-titulo);font-size:clamp(16px,3vw,32px);letter-spacing:.12em;text-transform:uppercase;color:var(--fc)}
+.amp-legenda{gap:.35em;font-weight:700;font-size:clamp(13px,2vw,22px);color:#fff}
+.amp-legenda b{color:var(--fc)}
+.amp-clarao{position:absolute;inset:0;background:radial-gradient(circle at 50% 50%,#fff,rgba(255,255,255,0) 62%);opacity:0;pointer-events:none}
+/* pergunta escondida enquanto a ampulheta abre (o relógio ainda não foi ligado) */
+.aguardando .letreiro,.aguardando .alts{visibility:hidden}
+.amp-fio{stroke-dasharray:2 3;animation:fio .35s linear infinite}
+@keyframes fio{to{stroke-dashoffset:-5}}
+#jogo.urgente .ampulheta{animation:balanca .5s ease-in-out infinite}
+@keyframes balanca{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}}
 #jogo.urgente .timer-num{animation:urgente .5s ease-in-out infinite}
 @keyframes urgente{50%{transform:scale(1.1)}}
 .valendo{font-family:var(--fonte-titulo);font-size:clamp(16px,2.4vw,30px);letter-spacing:.1em;text-transform:uppercase;margin-top:4px;color:var(--fc);transition:color .4s}
@@ -325,6 +342,7 @@ a.btn{display:inline-block;text-decoration:none;color:inherit}
   .led .valor{font-size:clamp(20px,6.5vw,30px);letter-spacing:.03em}
   .led.nome .valor{font-size:clamp(14px,4.5vw,20px)}
   .timer-num{font-size:clamp(40px,12vw,56px)}
+  .ampulheta{height:clamp(36px,10vw,48px)}
   .valendo{font-size:13px;margin-top:2px}
   .faixas-barra{margin:4px 0 2px}
   .seg{height:12px}

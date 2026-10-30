@@ -25,7 +25,7 @@ executar(async ({ c, A, sql }) => {
     if(a.status >= 400) return a;
     let ms = a.ms, ult = a;
     for(let k = 0; k < a.json.total; k++){
-      if(k){ const p = await c.post('/api/partida/proxima', { matricula:mat(i), dia:1 }); ms += p.ms; if(p.status >= 400) return { ...p, ms }; }
+      const p = await c.post('/api/partida/proxima', { matricula:mat(i), dia:1 }); ms += p.ms; if(p.status >= 400) return { ...p, ms };
       ult = await c.post('/api/partida/responder', { matricula:mat(i), dia:1, idx:k, alt:corretas[k] });
       ms += ult.ms; if(ult.status >= 400 || ult.json.fim) break;
     }

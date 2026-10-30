@@ -30,7 +30,20 @@
       <div class="cabecalho">
         <div class="led nome"><small>Participante</small><div class="valor" id="j-nome"></div></div>
         <div class="centro">
-          <div class="timer-num" id="j-timer">90</div>
+          <div class="timer-linha">
+            <!-- Ampulheta: a areia desce conforme o tempo da pergunta passa -->
+            <svg class="ampulheta" viewBox="0 0 40 60" aria-hidden="true">
+              <defs><clipPath id="amp-vidro"><path d="M6 4H34V10C34 20 22 27 22 30C22 33 34 40 34 50V56H6V50C6 40 18 33 18 30C18 27 6 20 6 10Z"/></clipPath></defs>
+              <g clip-path="url(#amp-vidro)" fill="currentColor">
+                <rect id="amp-cima" x="0" y="6" width="40" height="24" opacity=".9"/>
+                <rect id="amp-baixo" x="0" y="56" width="40" height="0" opacity=".9"/>
+              </g>
+              <line id="amp-fio" class="amp-fio" x1="20" y1="29" x2="20" y2="56" stroke="currentColor" stroke-width="1.6"/>
+              <path d="M6 4H34V10C34 20 22 27 22 30C22 33 34 40 34 50V56H6V50C6 40 18 33 18 30C18 27 6 20 6 10Z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+              <path d="M3 4H37M3 56H37" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/>
+            </svg>
+            <div class="timer-num" id="j-timer">90</div>
+          </div>
           <div class="valendo" id="j-valendo">Valendo <b>0</b></div>
         </div>
         <div class="led" id="led-placar">
@@ -116,8 +129,7 @@ function iniciarPartida(nome, r){
   jogo.sessao++;
   jogo.nome = nome;
   jogo.total = totalPerguntas = r.total;
-  jogo.idx = r.idx;
-  jogo.pergunta = r.pergunta;
+  jogo.pergunta = null;
   jogo.fimServidor = false;
   jogo.placar = 0;
   jogo.acertos = 0;
@@ -127,7 +139,7 @@ function iniciarPartida(nome, r){
   $('j-placar').textContent = '0';
   montarBarraFaixas();
   mostrarEtapa('jogo');
-  mostrarPergunta();
+  abrirPergunta(0);
 }
 
 /* Barra do timer: 3 segmentos, um por faixa */
@@ -156,6 +168,138 @@ function mostrarPergunta(){
   jogo.raf = requestAnimationFrame(tick);
 }
 
+/* Abertura de cada pergunta: animação da ampulheta com a pergunta escondida. Só quando ela chega ao canto o
+   servidor entrega a pergunta e liga o relógio — assim ninguém ganha tempo de leitura nem perde tempo na animação. */
+async function abrirPergunta(idx){
+  const sessao = jogo.sessao;
+  jogo.fase = 'carregando';
+  jogo.idx = idx;
+  jogo.sel = -1;
+  $('etapa-jogo').classList.add('aguardando');
+  $('j-acao').innerHTML = '';
+  renderLateral();
+  zerarTimerVisual();
+  await animarAmpulheta(idx);
+  if(sessao !== jogo.sessao) return;
+  let r;
+  try { r = await comRetry(() => api('POST', '/api/partida/proxima', { matricula:jogo.matricula, dia:jogo.dia })); }
+  catch(e){ if(sessao === jogo.sessao) erroPartida(e); return; }
+  if(sessao !== jogo.sessao) return;
+  jogo.idx = r.idx;
+  jogo.pergunta = r.pergunta;
+  $('etapa-jogo').classList.remove('aguardando');
+  mostrarPergunta();
+}
+
+/* Contador, barra e "Valendo" parados no começo, enquanto o relógio não foi ligado */
+function zerarTimerVisual(){
+  jogo.t0 = 0;
+  $('jogo').classList.remove('urgente');
+  aplicarFaixa(0, false);
+  $('j-timer').textContent = config.tempo;
+  for(let i = 0; i < 3; i++) document.querySelector(`#seg${i} i`).style.width = '100%';
+  areia(0);
+}
+
+/* Areia da ampulheta do canto: fr = fração do tempo gasto (0 = tudo em cima, 1 = tudo embaixo) */
+function areia(fr){
+  $('amp-cima').setAttribute('y', 6 + 24 * fr);
+  $('amp-cima').setAttribute('height', 24 * (1 - fr));
+  $('amp-baixo').setAttribute('y', 56 - 26 * fr);
+  $('amp-baixo').setAttribute('height', 26 * fr);
+  $('amp-fio').setAttribute('y2', 56 - 26 * fr);
+  $('amp-fio').style.opacity = fr < 1 ? 1 : 0;
+}
+
+/* ---------- Ampulheta de abertura ----------
+   1) surge de cabeça para baixo no meio da tela, dentro de uma moldura;  2) gira e "cai" com impacto
+   (a areia começa a escorrer, a moldura treme e dá um clarão);  3) vai para o lugar dela, ao lado do contador.
+   Devolve uma promessa que se resolve quando termina (ou é cancelada). */
+const AMP_DURACAO = 4200;
+let ampToken = 0, ampAnims = [];
+function limparAmpulheta(){
+  ampToken++;
+  ampAnims.forEach(a => a.cancel());
+  ampAnims = [];
+  document.querySelectorAll('.amp-voo, .amp-cena').forEach(e => e.remove());
+  const real = document.querySelector('.timer-linha .ampulheta');
+  if(real) real.style.visibility = '';
+}
+function animarAmpulheta(idx){
+  limparAmpulheta();
+  const real = document.querySelector('.timer-linha .ampulheta');
+  const r = real.getBoundingClientRect();
+  if(!real.animate || !r.width || matchMedia('(prefers-reduced-motion: reduce)').matches) return Promise.resolve();
+  const D = AMP_DURACAO, token = ampToken;
+  const alvo = Math.min(innerWidth, innerHeight) * .40;   // altura da ampulheta no centro da tela
+
+  // cena: fundo escurecido, moldura (título em cima, legenda embaixo; a ampulheta voa por cima, no centro) e clarão
+  const cena = document.createElement('div');
+  cena.className = 'amp-cena';
+  cena.innerHTML = `<div class="amp-moldura" style="width:${alvo * 1.3}px;height:${alvo + 120}px">
+      <div class="amp-faixa-txt amp-titulo">Pergunta ${idx + 1} de ${jogo.total}</div>
+      <div class="amp-faixa-txt amp-legenda">Você tem <b>${config.tempo}</b> segundos</div>
+    </div><div class="amp-clarao"></div>`;
+  $('jogo').appendChild(cena);
+
+  // ampulheta que voa: cópia da do canto (com recorte próprio, pois o original fica escondido)
+  const voo = real.cloneNode(true);
+  voo.querySelectorAll('[id]').forEach(e => e.removeAttribute('id'));
+  voo.querySelector('clipPath').id = 'amp-vidro-voo';
+  voo.querySelector('g').setAttribute('clip-path', 'url(#amp-vidro-voo)');
+  const [cima, baixo] = voo.querySelectorAll('rect');   // areia toda em cima
+  cima.setAttribute('y', 6); cima.setAttribute('height', 24);
+  baixo.setAttribute('y', 56); baixo.setAttribute('height', 0);
+  voo.classList.add('amp-voo');
+  Object.assign(voo.style, { left:r.left + 'px', top:r.top + 'px', width:r.width + 'px', height:r.height + 'px' });
+  $('jogo').appendChild(voo);
+  real.style.visibility = 'hidden';
+
+  const s = alvo / r.height;
+  const centro = `translate(${innerWidth / 2 - (r.left + r.width / 2)}px, ${innerHeight / 2 - (r.top + r.height / 2)}px)`;
+  const pose = (esc, giro) => `${centro} scale(${s * esc}) rotate(${giro}deg)`;
+  const impacto = .44;   // fração da animação em que ela "cai"
+
+  const anims = [
+    voo.animate([
+      { transform:pose(.5, 180),  opacity:0, offset:0,   easing:'ease-out' },     // surge de cabeça para baixo
+      { transform:pose(1, 180),   opacity:1, offset:.10 },
+      { transform:pose(1.03, 180), opacity:1, offset:.30, easing:'ease-in' },      // respira, de cabeça para baixo
+      { transform:pose(1.06, 200), opacity:1, offset:.36, easing:'ease-in' },      // recuo antes de girar
+      { transform:pose(1.18, -14), opacity:1, offset:impacto, easing:'ease-out' }, // gira e passa do ponto: impacto
+      { transform:pose(.96, 6),   opacity:1, offset:.48 },
+      { transform:pose(1, 0),     opacity:1, offset:.52 },                         // assenta; a areia escorre
+      { transform:pose(1, 0),     opacity:1, offset:.70, easing:'ease-in-out' },
+      { transform:'translate(0px, 0px) scale(1) rotate(0deg)', opacity:1, offset:1 }   // vai para o canto
+    ], { duration:D, fill:'both' }),
+    voo.querySelector('.amp-fio').animate([   // o fio de areia só aparece depois do giro
+      { opacity:0, offset:0 }, { opacity:0, offset:.5 }, { opacity:1, offset:.54 }, { opacity:1, offset:1 }
+    ], { duration:D, fill:'both' }),
+    cena.animate([   // fundo e moldura entram, ficam e somem quando a ampulheta sai para o canto
+      { opacity:0, offset:0 }, { opacity:1, offset:.07 }, { opacity:1, offset:.70 }, { opacity:0, offset:.92 }, { opacity:0, offset:1 }
+    ], { duration:D, fill:'both' }),
+    cena.querySelector('.amp-moldura').animate([   // tremor no impacto
+      { transform:'translate(0, 0)', offset:0 }, { transform:'translate(0, 0)', offset:impacto },
+      { transform:'translate(-12px, 7px)', offset:impacto + .02 }, { transform:'translate(10px, -7px)', offset:impacto + .04 },
+      { transform:'translate(-7px, 4px)', offset:impacto + .06 }, { transform:'translate(4px, -2px)', offset:impacto + .08 },
+      { transform:'translate(0, 0)', offset:impacto + .10 }, { transform:'translate(0, 0)', offset:1 }
+    ], { duration:D, fill:'both' }),
+    cena.querySelector('.amp-clarao').animate([   // clarão branco no impacto
+      { opacity:0, offset:0 }, { opacity:0, offset:impacto - .01 }, { opacity:.85, offset:impacto + .01 },
+      { opacity:0, offset:impacto + .09 }, { opacity:0, offset:1 }
+    ], { duration:D, fill:'both' })
+  ];
+  ampAnims = anims;
+  return new Promise(resolve => {
+    const fim = () => {
+      if(token !== ampToken) return resolve();   // foi cancelada por outra animação ou pelo fim do jogo
+      voo.remove(); cena.remove(); real.style.visibility = ''; ampAnims = [];
+      resolve();
+    };
+    anims[0].finished.then(fim, fim);
+  });
+}
+
 /* ---------- Timer ---------- */
 function pararTimer(){ cancelAnimationFrame(jogo.raf); jogo.raf = 0; }
 
@@ -174,6 +318,8 @@ function tick(){
   const vb = document.querySelector('#j-valendo b');
   if(vb) vb.textContent = fmt(valorEm(dec / dur));
   $('jogo').classList.toggle('urgente', rest <= 5000 && rest > 0);
+
+  areia(Math.min(1, dec / dur));   // areia some de cima e se acumula embaixo
 
   // preenchimento de cada segmento (esvazia da esquerda para a direita)
   const seg = dur/3;
@@ -323,20 +469,11 @@ function finalizarRodada(){
   const b = $('btn-prox'); if(b) b.focus();
 }
 
-/* Pede a próxima pergunta: o relógio dela só liga no servidor quando ela é entregue */
-async function proximaPergunta(){
+/* Botão "Próxima pergunta": abre a animação da ampulheta; a pergunta e o relógio vêm depois dela */
+function proximaPergunta(){
   if(jogo.fase !== 'revelado') return;
   if(jogo.fimServidor){ mostrarFim(); return; }
-  jogo.fase = 'carregando';
-  const sessao = jogo.sessao;
-  const b = $('btn-prox'); if(b) b.disabled = true;
-  let r;
-  try { r = await comRetry(() => api('POST', '/api/partida/proxima', { matricula:jogo.matricula, dia:jogo.dia })); }
-  catch(e){ if(sessao === jogo.sessao) erroPartida(e); return; }
-  if(sessao !== jogo.sessao) return;
-  jogo.idx = r.idx;
-  jogo.pergunta = r.pergunta;
-  mostrarPergunta();
+  abrirPergunta(jogo.idx + 1);
 }
 
 /* Momento 3: contador do placar sobe até o novo valor */
@@ -374,6 +511,7 @@ function renderLateral(){
 /* ---------- Tela final ---------- */
 function mostrarFim(){
   pararTimer();
+  limparAmpulheta();
   jogo.fase = 'fim';
   $('fim-acum').textContent = fmt(jogo.acumulado);
   const eliminado = jogo.status.includes('errou') || jogo.status.includes('tempo');

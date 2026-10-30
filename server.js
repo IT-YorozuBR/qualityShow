@@ -2,14 +2,15 @@
    RUMO AO MILHÃO — servidor local de desenvolvimento
    Iniciar:  npm start   →  http://localhost:3020
    Na Vercel, public/ é servido como estático e a API roda em api/[...rota].js.
-   Lê DATABASE_URL de .env.local.
+   npm start     → banco real (Neon, DATABASE_URL de .env.local)
+   npm run dev   → banco local de testes (PGlite em .dados-teste/dev), sem tocar no Neon
    ========================================================== */
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 
 try { process.loadEnvFile(path.join(__dirname, '.env.local')); } catch {}
-if(!process.env.DATABASE_URL){ console.error('Defina DATABASE_URL (arquivo .env.local).'); process.exit(1); }
+if(process.argv.includes('--local')) process.env.BANCO_LOCAL = '1';
 
 const { tratarApi, responder } = require('./lib/app');
 
@@ -26,7 +27,7 @@ const PAGINAS = {
   '/common.js': { tipo:'text/javascript; charset=utf-8' }
 };
 
-http.createServer(async (req, res) => {
+const servidor = http.createServer(async (req, res) => {
   const { pathname } = new URL(req.url, 'http://localhost');
   if(req.method === 'GET'){
     const nome = pathname === '/' ? '/index.html' : pathname;
@@ -34,4 +35,6 @@ http.createServer(async (req, res) => {
     if(arq) return responder(res, 200, fs.readFileSync(path.join(PUBLICO, nome), 'utf8'), arq.tipo);
   }
   if(!await tratarApi(req, res)) responder(res, 404, { erro:'Não encontrado.' });
-}).listen(PORTA, () => console.log(`Rumo ao Milhão em http://localhost:${PORTA}`));
+}).listen(PORTA, () => console.log(`Rumo ao Milhão em http://localhost:${PORTA} — banco: ${process.env.BANCO_LOCAL === '1' ? 'LOCAL de testes' : 'Neon (real)'}`));
+
+module.exports = servidor;   // os testes sobem o servidor no mesmo processo (o PGlite não é compartilhável)
