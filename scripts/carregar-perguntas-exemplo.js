@@ -1,9 +1,8 @@
 /* Carrega perguntas de exemplo (setor de qualidade industrial) nos dois dias.
    Substitui as perguntas existentes de cada dia.
-   Uso: npm run dev:perguntas  (banco local)   |   node scripts/carregar-perguntas-exemplo.js  (Neon real) */
+   Uso: npm run dev:perguntas  (só o banco local; para produção use a tela do admin) */
 const path = require('node:path');
 try { process.loadEnvFile(path.join(__dirname, '..', '.env.local')); } catch {}
-if(process.argv.includes('--local')) process.env.BANCO_LOCAL = '1';
 const sql = require('../lib/db');
 
 const DIA1 = [

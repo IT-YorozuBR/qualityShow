@@ -1,19 +1,15 @@
 /* Infraestrutura dos testes: sobe um servidor com credenciais de admin SÓ de teste,
    faz backup do banco antes e restaura no fim.
-   Por padrão usa o banco LOCAL (PGlite em .dados-teste/testes, recriado a cada execução) — não toca no Neon.
-   BANCO_LOCAL=0 npm test usa o Neon de .env.local: só faça isso num branch de teste, sem ninguém jogando. */
+   Usa sempre o banco LOCAL (PGlite em .dados-teste/testes, recriado a cada execução); nunca o de produção. */
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const RAIZ = path.join(__dirname, '..');
 try { process.loadEnvFile(path.join(RAIZ, '.env.local')); } catch {}
-const LOCAL = process.env.BANCO_LOCAL !== '0';
-process.env.BANCO_LOCAL = LOCAL ? '1' : '0';
-if(LOCAL){
-  process.env.BANCO_LOCAL_DIR = path.join(RAIZ, '.dados-teste', 'testes');
-  fs.rmSync(process.env.BANCO_LOCAL_DIR, { recursive:true, force:true });
-}
+delete process.env.VERCEL;
+process.env.BANCO_LOCAL_DIR = path.join(RAIZ, '.dados-teste', 'testes');
+fs.rmSync(process.env.BANCO_LOCAL_DIR, { recursive:true, force:true });
 const sql = require('../lib/db');
 const { iniciarBanco } = require('../lib/app');
 
