@@ -46,8 +46,8 @@ async function restaurar(b = JSON.parse(fs.readFileSync(ARQ_BACKUP, 'utf8'))){
 
 /* Servidor no MESMO processo dos testes (o PGlite só admite um processo); devolve { kill() } */
 async function subirServidor(porta){
-  Object.assign(process.env, ENV_TESTE, { PORT:String(porta) });
-  const servidor = require('../server.js');
+  Object.assign(process.env, ENV_TESTE);
+  const servidor = require('node:http').createServer(require('../lib/http').atender).listen(porta);
   for(let i = 0; i < 100 && !servidor.listening; i++) await new Promise(r => setTimeout(r, 100));
   if(!servidor.listening) throw new Error('Servidor não subiu.');
   return { kill(){ servidor.closeAllConnections(); servidor.close(); } };
