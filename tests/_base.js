@@ -37,7 +37,8 @@ async function restaurar(b = JSON.parse(fs.readFileSync(ARQ_BACKUP, 'utf8'))){
     ...b.config.map(r => sql`INSERT INTO config(chave, valor) VALUES(${r.chave}, ${r.valor})`),
     ...b.perguntas.map(r => sql`INSERT INTO perguntas(id, ordem, enunciado, alts, correta, dia) VALUES(${r.id}, ${r.ordem}, ${r.enunciado}, ${r.alts}, ${r.correta}, ${r.dia})`),
     ...b.jogadores.map(r => sql`INSERT INTO jogadores(matricula, nome, pontos_total, melhor, partidas, criado_em, atualizado_em) VALUES(${r.matricula}, ${r.nome}, ${r.pontos_total}, ${r.melhor}, ${r.partidas}, ${r.criado_em}, ${r.atualizado_em})`),
-    ...b.partidas.map(r => sql`INSERT INTO partidas(id, matricula, pontos, acertos, total, criado_em, dia) VALUES(${r.id}, ${r.matricula}, ${r.pontos}, ${r.acertos}, ${r.total}, ${r.criado_em}, ${r.dia})`)
+    ...b.partidas.map(r => sql`INSERT INTO partidas(id, matricula, pontos, acertos, total, criado_em, dia, tempo_ms, finalizada, fim, idx, pergunta_inicio)
+      VALUES(${r.id}, ${r.matricula}, ${r.pontos}, ${r.acertos}, ${r.total}, ${r.criado_em}, ${r.dia}, ${r.tempo_ms ?? 0}, ${r.finalizada ?? true}, ${r.fim ?? null}, ${r.idx ?? 0}, ${r.pergunta_inicio ?? null})`)
   ]);
   fs.rmSync(ARQ_BACKUP, { force:true });
 }

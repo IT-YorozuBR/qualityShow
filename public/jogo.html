@@ -79,47 +79,50 @@ function mostrarEtapa(e){
   $('etapa-fim').hidden = e !== 'fim';
 }
 
-/* Sai da partida: guarda o que já foi ganho e volta à página inicial */
-async function sair(){
+/* Sai da partida e volta à página inicial (os pontos já ganhos ficam guardados no servidor) */
+function sair(){
   pararTimer();
   jogo.sessao++;           // invalida qualquer sequência assíncrona em andamento
-  await salvarPartida();
   location.href = 'index.html';
 }
 
 /* ==========================================================
    JOGO
+   O servidor conduz a partida: entrega uma pergunta por vez (sem a resposta certa),
+   mede o tempo, confere a resposta e calcula os pontos. Esta página só mostra o resultado.
    ========================================================== */
 const jogo = {
   sessao:0,          // contador para cancelar sequências assíncronas
   dia:1,             // dia das perguntas desta partida (fixado ao abrir, não muda na virada)
   nome:'',
   matricula:'',      // chave do jogador no banco
-  salvo:true,        // pontos da partida atual já enviados ao banco?
   acumulado:0,       // total de pontos da matrícula (vindo do banco)
+  total:0,           // quantidade de perguntas da partida
   idx:0,             // pergunta atual
+  pergunta:null,     // { enunciado, alts } da pergunta atual
+  fimServidor:false, // o servidor encerrou a partida (errou, tempo esgotado ou última pergunta)
   placar:0,
   acertos:0,
-  tempoMs:0,         // soma do tempo gasto nas respostas (desempate)
   status:[],         // por pergunta: 'pendente' | 'acertou' | 'errou' | 'tempo'
   ganhos:[],         // pontos ganhos por pergunta
-  fase:'ociosa',     // 'pergunta' | 'suspense' | 'revelado'
+  fase:'ociosa',     // 'pergunta' | 'suspense' | 'revelado' | 'carregando' | 'erro' | 'fim'
   sel:-1,            // alternativa selecionada
   faixa:0,           // faixa atual do timer
   t0:0,              // instante de início do timer
   raf:0
 };
 
-function iniciarPartida(nome){
+function iniciarPartida(nome, r){
   jogo.sessao++;
   jogo.nome = nome;
-  jogo.salvo = false;
-  jogo.idx = 0;
+  jogo.total = totalPerguntas = r.total;
+  jogo.idx = r.idx;
+  jogo.pergunta = r.pergunta;
+  jogo.fimServidor = false;
   jogo.placar = 0;
   jogo.acertos = 0;
-  jogo.tempoMs = 0;
-  jogo.status = perguntas.map(() => 'pendente');
-  jogo.ganhos = perguntas.map(() => 0);
+  jogo.status = Array(jogo.total).fill('pendente');
+  jogo.ganhos = Array(jogo.total).fill(0);
   $('j-nome').textContent = nome;
   $('j-placar').textContent = '0';
   montarBarraFaixas();
@@ -134,10 +137,10 @@ function montarBarraFaixas(){
 }
 
 function mostrarPergunta(){
-  const p = perguntas[jogo.idx];
+  const p = jogo.pergunta;
   jogo.fase = 'pergunta';
   jogo.sel = -1;
-  $('j-ordem').textContent = `Pergunta ${jogo.idx+1} de ${perguntas.length}`;
+  $('j-ordem').textContent = `Pergunta ${jogo.idx+1} de ${jogo.total}`;
   $('j-enun').textContent = p.enunciado;
   $('j-alts').innerHTML = p.alts.map((a,i) => `
     <button class="alt" data-i="${i}">
@@ -213,16 +216,33 @@ function clicarAlternativa(i){
   confirmarResposta();
 }
 
-/* Jogador clicou numa alternativa: congela o timer, calcula faixa e inicia a revelação */
+/* Repete a chamada se a rede falhar (erros respondidos pelo servidor não se repetem) */
+async function comRetry(fn){
+  for(let t = 0; ; t++){
+    try { return await fn(); }
+    catch(e){ if(e.status || t >= 2) throw e; await espera(600); }
+  }
+}
+
+/* Envia a escolha ao servidor (alt = índice; null quando o tempo acabou) → { res } ou { erro } */
+function enviarResposta(alt){
+  const corpo = { matricula:jogo.matricula, dia:jogo.dia, idx:jogo.idx, alt };
+  return comRetry(() => api('POST', '/api/partida/responder', corpo)).then(res => ({ res }), erro => ({ erro }));
+}
+
+/* Falha que impede de continuar a partida (os pontos já feitos ficam guardados no servidor) */
+function erroPartida(e){
+  jogo.fase = 'erro';
+  $('j-acao').innerHTML = `<div class="resultado ruim"><div class="msg">${esc(e.message)}</div><div><button class="btn cheio" id="btn-erro">Voltar ao início</button></div></div>`;
+}
+
+/* Jogador clicou numa alternativa: congela o timer e envia a resposta; a alternativa pisca enquanto o servidor confere */
 async function confirmarResposta(){
   if(jogo.fase !== 'pergunta') return;
-  const dec = performance.now() - jogo.t0;
-  jogo.tempoMs += Math.round(dec);
   jogo.fase = 'suspense';
   pararTimer();
   $('jogo').classList.remove('urgente');
   const sessao = jogo.sessao;
-  const p = perguntas[jogo.idx];
   const botoes = document.querySelectorAll('#j-alts .alt');
   botoes.forEach(b => b.disabled = true);
   $('j-acao').innerHTML = '<div class="suspense-txt">Será que acertou?</div>';
@@ -231,76 +251,91 @@ async function confirmarResposta(){
   const escolhida = botoes[jogo.sel];
   void escolhida.offsetWidth;
   escolhida.classList.add('pisca');
-  await espera(2050);
+  const [{ res, erro }] = await Promise.all([enviarResposta(jogo.sel), espera(2050)]);
   if(sessao !== jogo.sessao) return;
   escolhida.classList.remove('pisca');
-
-  // Momento 2: revelação
-  const acertou = jogo.sel === p.correta;
-  botoes.forEach((b,k) => { if(k !== jogo.sel && k !== p.correta) b.classList.add('apagada'); });
-  if(acertou){
-    const pts = valorEm(dec / (config.tempo * 1000));
-    escolhida.classList.add('certa');
-    jogo.status[jogo.idx] = 'acertou';
-    jogo.ganhos[jogo.idx] = pts;
-    jogo.acertos++;
-    mostrarResultado(true, `Resposta certa!`, pts);
-    renderLateral();
-    await animarPlacar(jogo.placar, jogo.placar + pts, pts);
-    if(sessao !== jogo.sessao) return;
-    jogo.placar += pts;
-  } else {
-    escolhida.classList.add('errada');
-    jogo.status[jogo.idx] = 'errou';
-    mostrarResultado(false, 'Resposta errada!', 0);
-    renderLateral();
-    await espera(1100);
-    if(sessao !== jogo.sessao) return;
-    botoes[p.correta].classList.add('certa-pisca');
-  }
-  finalizarRodada();
+  if(erro) return erroPartida(erro);
+  await revelar(res, sessao);
 }
 
-/* Tempo acabou: 0 pontos, pergunta perdida */
+/* Tempo acabou: o servidor confirma, 0 pontos e a partida termina */
 async function tempoEsgotado(){
-  if(jogo.fase === 'suspense' || jogo.fase === 'revelado') return;
+  if(jogo.fase !== 'pergunta') return;
   jogo.fase = 'suspense';
   pararTimer();
   $('jogo').classList.remove('urgente');
   $('j-timer').textContent = '0';
   const sessao = jogo.sessao;
-  const p = perguntas[jogo.idx];
-  const botoes = document.querySelectorAll('#j-alts .alt');
-  botoes.forEach(b => { b.disabled = true; b.classList.remove('sel'); });
-  jogo.status[jogo.idx] = 'tempo';
-  jogo.tempoMs += config.tempo * 1000;
-  mostrarResultado(false, 'Tempo esgotado!', 0);
-  renderLateral();
-  botoes.forEach((b,k) => { if(k !== p.correta) b.classList.add('apagada'); });
-  await espera(900);
+  jogo.sel = -1;
+  document.querySelectorAll('#j-alts .alt').forEach(b => { b.disabled = true; b.classList.remove('sel'); });
+  $('j-acao').innerHTML = '<div class="suspense-txt">Tempo esgotado!</div>';
+  const { res, erro } = await enviarResposta(null);
   if(sessao !== jogo.sessao) return;
-  botoes[p.correta].classList.add('certa-pisca');
+  if(erro) return erroPartida(erro);
+  await revelar(res, sessao);
+}
+
+/* Momento 2: revelação do veredicto do servidor */
+async function revelar(res, sessao){
+  const botoes = document.querySelectorAll('#j-alts .alt');
+  const escolhida = botoes[jogo.sel];
+  botoes.forEach((b,k) => { if(k !== jogo.sel && k !== res.correta) b.classList.add('apagada'); });
+  jogo.fimServidor = res.fim;
+  if(res.fim) jogo.acumulado = res.jogador.pontosTotal;
+  if(res.acertou){
+    escolhida.classList.add('certa');
+    jogo.status[jogo.idx] = 'acertou';
+    jogo.ganhos[jogo.idx] = res.pontos;
+    jogo.acertos = res.acertos;
+    mostrarResultado(true, 'Resposta certa!');
+    renderLateral();
+    await animarPlacar(jogo.placar, res.placar, res.pontos);
+    if(sessao !== jogo.sessao) return;
+    jogo.placar = res.placar;
+  } else if(res.tempoEsgotado){
+    jogo.status[jogo.idx] = 'tempo';
+    mostrarResultado(false, 'Tempo esgotado!');
+    renderLateral();
+    await espera(900);
+    if(sessao !== jogo.sessao) return;
+    botoes[res.correta].classList.add('certa-pisca');
+  } else {
+    escolhida.classList.add('errada');
+    jogo.status[jogo.idx] = 'errou';
+    mostrarResultado(false, 'Resposta errada!');
+    renderLateral();
+    await espera(1100);
+    if(sessao !== jogo.sessao) return;
+    botoes[res.correta].classList.add('certa-pisca');
+  }
   finalizarRodada();
 }
 
-function mostrarResultado(ok, msg, pts){
+function mostrarResultado(ok, msg){
   $('j-acao').innerHTML = `<div class="resultado ${ok?'ok':'ruim'}"><div class="msg">${msg}</div><div id="slot-prox"></div></div>`;
 }
 
 /* Mostra o botão de avançar */
 function finalizarRodada(){
   jogo.fase = 'revelado';
-  // errou ou estourou o tempo: o jogo acaba na hora
-  const ultima = jogo.idx >= perguntas.length - 1 || jogo.status[jogo.idx] !== 'acertou';
   const slot = $('slot-prox');
-  if(slot) slot.innerHTML = `<button class="btn cheio" id="btn-prox">${ultima ? 'Ver resultado' : 'Próxima pergunta'}</button>`;
+  if(slot) slot.innerHTML = `<button class="btn cheio" id="btn-prox">${jogo.fimServidor ? 'Ver resultado' : 'Próxima pergunta'}</button>`;
   const b = $('btn-prox'); if(b) b.focus();
 }
 
-function proximaPergunta(){
+/* Pede a próxima pergunta: o relógio dela só liga no servidor quando ela é entregue */
+async function proximaPergunta(){
   if(jogo.fase !== 'revelado') return;
-  if(jogo.idx >= perguntas.length - 1 || jogo.status[jogo.idx] !== 'acertou'){ mostrarFim(); return; }
-  jogo.idx++;
+  if(jogo.fimServidor){ mostrarFim(); return; }
+  jogo.fase = 'carregando';
+  const sessao = jogo.sessao;
+  const b = $('btn-prox'); if(b) b.disabled = true;
+  let r;
+  try { r = await comRetry(() => api('POST', '/api/partida/proxima', { matricula:jogo.matricula, dia:jogo.dia })); }
+  catch(e){ if(sessao === jogo.sessao) erroPartida(e); return; }
+  if(sessao !== jogo.sessao) return;
+  jogo.idx = r.idx;
+  jogo.pergunta = r.pergunta;
   mostrarPergunta();
 }
 
@@ -327,7 +362,7 @@ function animarPlacar(de, para, pts){
 /* Lista lateral de perguntas */
 function renderLateral(){
   const rot = { pendente:'', acertou:'Acertou', errou:'Errou', tempo:'Tempo' };
-  $('j-lista').innerHTML = perguntas.map((_,i) => {
+  $('j-lista').innerHTML = jogo.status.map((_,i) => {
     const st = jogo.status[i];
     const cls = st !== 'pendente' ? st : (i === jogo.idx ? 'atual' : '');
     const label = st !== 'pendente' ? rot[st] : (i === jogo.idx ? 'Agora' : '');
@@ -336,36 +371,17 @@ function renderLateral(){
   }).join('');
 }
 
-/* Soma os pontos da partida na matrícula (uma única vez por partida) */
-async function salvarPartida(){
-  if(jogo.salvo || !jogo.matricula) return;
-  jogo.salvo = true;
-  try {
-    const r = await api('POST', '/api/partida', {
-      matricula:jogo.matricula, dia:jogo.dia, pontos:Math.round(jogo.placar), acertos:jogo.acertos, total:perguntas.length, tempoMs:Math.round(jogo.tempoMs)
-    });
-    jogo.acumulado = r.jogador.pontosTotal;
-  } catch(e){
-    jogo.salvo = false;
-    $('fim-acum').textContent = e.message;
-    console.error(e);
-    return;
-  }
-  $('fim-acum').textContent = fmt(jogo.acumulado);
-}
-
 /* ---------- Tela final ---------- */
 function mostrarFim(){
   pararTimer();
   jogo.fase = 'fim';
-  $('fim-acum').textContent = '...';
-  salvarPartida();
+  $('fim-acum').textContent = fmt(jogo.acumulado);
   const eliminado = jogo.status.includes('errou') || jogo.status.includes('tempo');
   document.querySelector('.fim-titulo').textContent = eliminado ? 'Você perdeu!' : 'Fim de jogo';
   $('fim-nome').textContent = jogo.nome;
   $('fim-pontos').textContent = fmt(jogo.placar);
   $('fim-acertos').textContent = jogo.acertos;
-  $('fim-total').textContent = perguntas.length;
+  $('fim-total').textContent = jogo.total;
   mostrarEtapa('fim');
 }
 
@@ -378,6 +394,7 @@ $('j-alts').addEventListener('click', ev => {
 });
 $('j-acao').addEventListener('click', ev => {
   if(ev.target.id === 'btn-prox') proximaPergunta();
+  if(ev.target.id === 'btn-erro') sair();
 });
 $('btn-voltar').addEventListener('click', sair);
 
@@ -388,16 +405,15 @@ $('btn-voltar').addEventListener('click', sair);
   if(!j || !j.matricula){ location.replace('index.html'); return; }
   jogo.matricula = j.matricula;
   jogo.acumulado = j.pontosTotal;
+  let inicio;
   try {
     const e = await api('GET', '/api/estado');
-    perguntas.splice(0, perguntas.length, ...e.perguntas);
-    Object.assign(config, e.config);
+    if(!e.total){ alert('Nenhuma pergunta cadastrada. Use a engrenagem na página inicial.'); location.replace('index.html'); return; }
     jogo.dia = e.dia;
+    inicio = await api('POST', '/api/partida/iniciar', { matricula:jogo.matricula, dia:jogo.dia });
   } catch(err){ alert(err.message); location.replace('index.html'); return; }
-  if(!perguntas.length){ alert('Nenhuma pergunta cadastrada. Use a engrenagem na página inicial.'); location.replace('index.html'); return; }
-  try { await api('POST', '/api/partida/iniciar', { matricula:jogo.matricula, dia:jogo.dia }); }
-  catch(err){ alert(err.message); location.replace('index.html'); return; }
-  iniciarPartida(j.nome);
+  Object.assign(config, inicio.config);
+  iniciarPartida(j.nome, inicio);
 })();
 </script>
 </body>

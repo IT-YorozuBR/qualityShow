@@ -48,20 +48,22 @@ executar(async ({ c, A, sql }) => {
   /* ------------------------------------------------------ */
   grupo('Estado do jogo e dias');
   r = await c.get('/api/estado');
-  t('sem virada: dia 1 com perguntas', r.status === 200 && r.json.dia === 1 && r.json.perguntas.length === 5);
+  t('sem virada: dia 1 com 5 perguntas', r.status === 200 && r.json.dia === 1 && r.json.total === 5);
+  t('estado não entrega perguntas nem respostas', !r.txt.includes('alts') && !r.txt.includes('correta') && !('perguntas' in r.json));
   t('config tem total/tempo/pct', r.json.config.total === 1000000 && r.json.config.tempo === 90 && r.json.config.pct.length === 3);
 
   t('admin: PUT perguntas dia 2', (await c.put('/api/perguntas', { dia:2, perguntas:[q('DIA2-A'), q('DIA2-B', 3)] }, A)).status === 200);
   r = await c.get('/api/estado');
   t('estado (dia 1) NÃO vaza perguntas do dia 2', !r.txt.includes('DIA2-'));
-  t('gravar o dia 2 não alterou o dia 1', r.json.perguntas.length === 5);
+  t('gravar o dia 2 não alterou o dia 1', r.json.total === 5);
 
   await c.put('/api/config', cfg(agora(3600e3)), A);
   t('virada no futuro → ainda dia 1', (await c.get('/api/estado')).json.dia === 1);
   await c.put('/api/config', cfg(agora(-1000)), A);
   r = await c.get('/api/estado');
-  t('virada passada → dia 2 com SÓ as perguntas do dia 2', r.json.dia === 2 && r.json.perguntas.length === 2 && !r.txt.includes('Júpiter'));
-  t('resposta correta do dia 2 preservada', r.json.perguntas[1].correta === 3);
+  t('virada passada → dia 2 com SÓ as perguntas do dia 2', r.json.dia === 2 && r.json.total === 2);
+  t('resposta correta do dia 2 preservada (visão do admin)', (await c.get('/api/admin/perguntas', A)).json.perguntas[2][1].correta === 3);
+  await c.put('/api/config', cfg(null), A);
 
   /* Partidas, limite por dia, desempate e virada: veja tests/regras.js */
 
@@ -84,7 +86,7 @@ executar(async ({ c, A, sql }) => {
   for(const [m, u, b] of [['PUT', '/api/perguntas', { dia:1, perguntas:[] }], ['PUT', '/api/config', cfg(null)], ['GET', '/api/admin/perguntas']]){
     t(`${m} ${u} sem login → 401`, (await c.chamar(m, u, b)).status === 401);
   }
-  t('as 5 perguntas do dia 1 seguem intactas após as tentativas sem login', (await c.get('/api/estado')).json.perguntas.length === 5);
+  t('as 5 perguntas do dia 1 seguem intactas após as tentativas sem login', (await c.get('/api/estado')).json.total === 5);
 
   /* ------------------------------------------------------ */
   grupo('Admin: validação de perguntas e configuração');
@@ -97,7 +99,7 @@ executar(async ({ c, A, sql }) => {
   for(const [n, p] of ruins) t(`rejeita pergunta ${n}`, (await c.put('/api/perguntas', { dia:1, perguntas:[p] }, A)).status === 400);
   t('rejeita > 200 perguntas', (await c.put('/api/perguntas', { dia:1, perguntas:Array(201).fill(q('x')) }, A)).status === 400);
   t('rejeita dia 3 / sem dia', (await c.put('/api/perguntas', { dia:3, perguntas:[] }, A)).status === 400 && (await c.put('/api/perguntas', { perguntas:[] }, A)).status === 400);
-  t('perguntas inválidas não apagaram o dia 1', (await c.get('/api/estado')).json.perguntas.length === 5);
+  t('perguntas inválidas não apagaram o dia 1', (await c.get('/api/estado')).json.total === 5);
   t('aceita dia vazio (limpar)', (await c.put('/api/perguntas', { dia:2, perguntas:[] }, A)).status === 200);
   await c.put('/api/perguntas', { dia:2, perguntas:[q('  espaço  ')] }, A);
   t('texto é aparado (trim)', (await c.get('/api/admin/perguntas', A)).json.perguntas[2][0].enunciado === 'espaço');

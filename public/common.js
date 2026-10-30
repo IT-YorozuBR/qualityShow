@@ -44,12 +44,15 @@ const fmt = n => Math.round(n).toLocaleString('pt-BR');
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const espera = ms => new Promise(r => setTimeout(r, ms));
 
-/* Pontos máximos por pergunta e valor de cada faixa */
-function pontosPorPergunta(){ return perguntas.length ? config.total / perguntas.length : 0; }
+/* Pontos máximos por pergunta e valor de cada faixa.
+   No jogo, as perguntas ficam no servidor e a página só sabe quantas são (totalPerguntas). */
+let totalPerguntas = null;
+function pontosPorPergunta(){ const n = totalPerguntas ?? perguntas.length; return n ? config.total / n : 0; }
 function valorFaixa(i){ return valorEm(i / 3); }
 
 /* Pontos em função do tempo gasto (frac = 0 no início, 1 no fim): a pontuação desce de forma contínua,
-   passando por pct[0] no início, pct[1] na metade e pct[2] no fim. Assim quase nunca há dois jogadores com o mesmo valor. */
+   passando por pct[0] no início, pct[1] na metade e pct[2] no fim. Assim quase nunca há dois jogadores com o mesmo valor.
+   Aqui só serve para mostrar o "Valendo"; quem calcula os pontos de verdade é o servidor (lib/app.js). */
 function valorEm(frac){
   const f = Math.max(0, Math.min(1, frac)), [a, b, c] = config.pct;
   const pct = f <= .5 ? a + (b - a) * (f / .5) : b + (c - b) * ((f - .5) / .5);

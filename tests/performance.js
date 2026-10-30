@@ -19,11 +19,17 @@ async function carga(total, paralelo, fn){
 
 executar(async ({ c, A, sql }) => {
   const mat = i => 'PERF' + String(i).padStart(4, '0');
-  const jogar = async i => {          // uma partida completa: iniciar + finalizar
+  const corretas = (await sql`SELECT correta FROM perguntas WHERE dia=1 ORDER BY ordem`).map(r => r.correta);
+  const jogar = async i => {          // uma partida completa conduzida pelo servidor: iniciar + (proxima + responder) por pergunta
     const a = await c.post('/api/partida/iniciar', { matricula:mat(i), dia:1 });
     if(a.status >= 400) return a;
-    const b = await c.post('/api/partida', { matricula:mat(i), dia:1, pontos:1000 + ((i * 7919) % 900000), acertos:1 + (i % 5), total:5, tempoMs:1 });
-    b.ms += a.ms; return b;
+    let ms = a.ms, ult = a;
+    for(let k = 0; k < a.json.total; k++){
+      if(k){ const p = await c.post('/api/partida/proxima', { matricula:mat(i), dia:1 }); ms += p.ms; if(p.status >= 400) return { ...p, ms }; }
+      ult = await c.post('/api/partida/responder', { matricula:mat(i), dia:1, idx:k, alt:corretas[k] });
+      ms += ult.ms; if(ult.status >= 400 || ult.json.fim) break;
+    }
+    return { ...ult, ms };
   };
 
   console.log('\nLatência sequencial (30 chamadas cada; inclui ida e volta ao Neon)');
@@ -32,18 +38,18 @@ executar(async ({ c, A, sql }) => {
   const seq = async (nome, fn, n = 30) => { const ms = []; for(let i = 0; i < n; i++) ms.push((await fn(i)).ms); linha(nome, ms); return ms; };
   const e = await seq('GET  /api/estado', () => c.get('/api/estado'));
   await seq('POST /api/login (existente)', () => c.post('/api/login', { matricula:mat(0), nome:'x' }));
-  const part = await seq('partida completa (iniciar+fim)', i => jogar(300 + i));
+  const part = await seq('partida completa (~9 chamadas)', i => jogar(300 + i));
   const rk0 = await seq('GET  /api/ranking (30 jogadores)', () => c.get('/api/ranking'));
   await seq('GET  /index.html (estático)', () => c.get('/index.html'));
   limite('estado p95', pct(e, .95), 800);
   limite('ranking p95', pct(rk0, .95), 800);
-  limite('partida completa p95', pct(part, .95), 1500);
+  limite('partida completa p95', pct(part, .95), 5000);
 
   console.log('\nPartidas em massa: 300 jogadores jogando (20 em paralelo)');
   const massa = await carga(300, 20, jogar);
   console.log(`  ${massa.ms.length} partidas completas em ${massa.seg.toFixed(1)} s (${(massa.ms.length / massa.seg).toFixed(1)}/s), erros ${massa.erros}`);
   if(massa.erros) falhou = true;
-  limite('partida completa sob carga p95', pct(massa.ms, .95), 4000);
+  limite('partida completa sob carga p95', pct(massa.ms, .95), 12000);
 
   console.log('\nRanking com 330 jogadores com partida');
   const rk = await seq('GET /api/ranking (geral)', () => c.get('/api/ranking'));

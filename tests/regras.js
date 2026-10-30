@@ -1,71 +1,148 @@
-/* Regras do jogo: limite de 1 partida por dia, desempate e virada do dia.
+/* Regras do jogo conduzido pelo servidor: limite de 1 partida por dia, pontuação pelo relógio do servidor,
+   tentativas de fraude, desempate e virada do dia.
    Usa só dados TST* e restaura a config ao fim (não apaga as outras tabelas).  Uso: npm run test:regras */
 const path = require('node:path');
+const fs = require('node:fs');
+const vm = require('node:vm');
 const R = path.join(__dirname, '..') + path.sep;
 const { spawn } = require('node:child_process');
 const { ENV_TESTE, tokenAdmin, sql } = require('./_base.js');
+const { valorEm } = require('../lib/app.js');
 let ok = 0, ruins = [];
 const t = (n, c, x = '') => { c ? ok++ : ruins.push(n + ' ' + x); console.log(c ? '  ✓' : '  ✗', n, c ? '' : x); };
 (async () => {
   const porta = 3900 + Math.floor(Math.random() * 90), B = `http://localhost:${porta}`;
   const proc = spawn(process.execPath, ['server.js'], { cwd:R, env:{ ...process.env, ...ENV_TESTE, PORT:String(porta) }, stdio:'ignore' });
   await new Promise(r => setTimeout(r, 2500));
-  const call = async (m, u, b, h = {}) => { const r = await fetch(B + u, { method:m, headers:{ 'Content-Type':'application/json', ...h }, body:b && JSON.stringify(b) }); return { s:r.status, j:await r.json().catch(() => null) }; };
+  const call = async (m, u, b, h = {}) => { const r = await fetch(B + u, { method:m, headers:{ 'Content-Type':'application/json', ...h }, body:b && JSON.stringify(b) }); const txt = await r.text(); let j = null; try { j = JSON.parse(txt); } catch {} return { s:r.status, j, txt }; };
   const cfgAntes = (await sql`SELECT valor FROM config WHERE chave='jogo'`)[0].valor;
+  const cfg = JSON.parse(cfgAntes);
   const c = { get:(u, h) => call('GET', u, undefined, h), post:(u, b, h) => call('POST', u, b, h) };
   const A = await tokenAdmin({ post:async (u, b) => { const r = await call('POST', u, b); return { json:r.j }; } });
-  const putCfg = v => fetch(B + '/api/config', { method:'PUT', headers:{ 'Content-Type':'application/json', ...A }, body:JSON.stringify({ config:{ ...JSON.parse(cfgAntes), virada:v } }) });
-  const jogar = async (m, nome, p = {}) => {
-    await c.post('/api/login', { matricula:m, nome });
-    const i = await c.post('/api/partida/iniciar', { matricula:m, dia:1 });
-    if(i.s !== 200) return i;
-    const f = await c.post('/api/partida', { matricula:m, dia:1, pontos:p.pontos ?? 100000, acertos:p.acertos ?? 2, total:5, tempoMs:1 });
-    // fixa tempo e hora de término para o desempate ser determinístico (o servidor limita o tempo ao que ele viu)
-    await sql`UPDATE partidas SET tempo_ms=${p.tempo ?? 30000}, fim = now() - (${p.atras ?? 0} || ' seconds')::interval WHERE matricula=${m}`;
-    return f;
-  };
+  const putCfg = v => fetch(B + '/api/config', { method:'PUT', headers:{ 'Content-Type':'application/json', ...A }, body:JSON.stringify({ config:{ ...cfg, virada:v } }) });
+
+  const corretas = (await sql`SELECT correta FROM perguntas WHERE dia=1 ORDER BY ordem`).map(r => r.correta);
+  const n = corretas.length, maxPorPergunta = Math.round(cfg.total / n);
+  if(n < 3) throw new Error('Os testes precisam de pelo menos 3 perguntas no dia 1.');
+
+  const entrar = (m, nome = m) => c.post('/api/login', { matricula:m, nome });
+  const iniciar = (m, dia = 1) => c.post('/api/partida/iniciar', { matricula:m, dia });
+  const resp = (m, idx, alt, dia = 1, extra = {}) => c.post('/api/partida/responder', { matricula:m, dia, idx, alt, ...extra });
+  const prox = (m, dia = 1) => c.post('/api/partida/proxima', { matricula:m, dia });
+  const certa = (m, idx) => resp(m, idx, corretas[idx]);
+  /* faz o relógio do servidor achar que a pergunta atual foi entregue há `seg` segundos */
+  const recuar = (m, seg, dia = 1) => sql`UPDATE partidas SET pergunta_inicio = now() - make_interval(secs => ${seg}::float8) WHERE matricula=${m} AND dia=${dia}`;
+  const linha = async m => (await sql`SELECT pontos::int p, acertos, total, idx, finalizada, tempo_ms::int tempo, pergunta_inicio FROM partidas WHERE matricula=${m} AND dia=1`)[0];
+
   try {
     await putCfg(null);
-    console.log('Limite de 1 partida por dia');
-    let r = await c.post('/api/login', { matricula:'TST100', nome:'Um' });
+
+    console.log('Pontuação: fórmula do servidor = fórmula mostrada na tela (public/common.js)');
+    const ctx = vm.createContext({});
+    vm.runInContext(fs.readFileSync(path.join(R, 'public', 'common.js'), 'utf8'), ctx);
+    vm.runInContext(`totalPerguntas = ${n}; config.total = ${cfg.total}; config.pct = ${JSON.stringify(cfg.pct)};`, ctx);
+    let difere = 0;
+    for(let i = 0; i <= 1000; i++) if(vm.runInContext(`valorEm(${i / 1000})`, ctx) !== valorEm(cfg, n, i / 1000)) difere++;
+    t('valorEm igual em 1001 pontos do tempo', difere === 0, difere + ' diferenças');
+
+    console.log('\nLimite de 1 partida por dia');
+    let r = await entrar('TST100', 'Um');
     t('login: dia 1, ainda não jogou', r.j.dia === 1 && r.j.jogou === false);
-    t('iniciar → 200', (await c.post('/api/partida/iniciar', { matricula:'TST100', dia:1 })).s === 200);
-    r = await c.post('/api/partida/iniciar', { matricula:'TST100', dia:1 });
+    r = await iniciar('TST100');
+    const ini100 = r;
+    t('iniciar → 200 com a 1ª pergunta e o total', r.s === 200 && r.j.idx === 0 && r.j.total === n && !!r.j.pergunta.enunciado && r.j.pergunta.alts.length === 4, JSON.stringify(r.j));
+    r = await iniciar('TST100');
     t('iniciar de novo (recarregar a página) → 409', r.s === 409 && /já jogou/.test(r.j.erro), JSON.stringify(r));
     t('login agora mostra jogou=true', (await c.post('/api/login', { matricula:'TST100' })).j.jogou === true);
-    t('iniciar dia errado → 409', (await c.post('/api/partida/iniciar', { matricula:'TST100', dia:2 })).s === 409);
-    t('iniciar matrícula inexistente → 404', (await c.post('/api/partida/iniciar', { matricula:'TSTNADA', dia:1 })).s === 404);
-    t('finalizar com pontos acima do total do jogo → 400', (await c.post('/api/partida', { matricula:'TST100', dia:1, pontos:5e6, acertos:1, total:5 })).s === 400);
-    t('finalizar com acertos > total → 400', (await c.post('/api/partida', { matricula:'TST100', dia:1, pontos:1, acertos:9, total:5 })).s === 400);
-    r = await c.post('/api/partida', { matricula:'TST100', dia:1, pontos:123456, acertos:2, total:5, tempoMs:80000000 });
-    t('finalizar a partida iniciada → 200 e total certo', r.s === 200 && r.j.jogador.pontosTotal === 123456, JSON.stringify(r));
-    const [lin] = await sql`SELECT tempo_ms::int t FROM partidas WHERE matricula='TST100'`;
-    t('tempo informado é limitado ao que o servidor viu (' + lin.t + ' ms)', lin.t < 10000);
-    t('finalizar duas vezes → 409 (não soma de novo)', (await c.post('/api/partida', { matricula:'TST100', dia:1, pontos:1, acertos:1, total:5 })).s === 409);
-    await c.post('/api/login', { matricula:'TST101', nome:'Dois' });
-    t('finalizar sem ter iniciado → 409', (await c.post('/api/partida', { matricula:'TST101', dia:1, pontos:1000, acertos:1, total:5 })).s === 409);
+    t('iniciar dia errado → 409', (await iniciar('TST100', 2)).s === 409);
+    t('iniciar matrícula inexistente → 404', (await iniciar('TSTNADA')).s === 404);
+
+    console.log('\nO servidor não entrega a resposta certa antes da hora');
+    const est = await c.get('/api/estado');
+    t('/api/estado traz só dia, total e config (sem perguntas)', est.s === 200 && est.j.total === n && !est.txt.includes('alts') && !est.txt.includes('correta'), est.txt.slice(0, 120));
+    t('resposta de iniciar não contém "correta"', !ini100.txt.includes('correta'), ini100.txt.slice(0, 200));
+    t('a rota antiga que aceitava pontos do navegador não existe mais', (await c.post('/api/partida', { matricula:'TST100', dia:1, pontos:999999, acertos:5, total:5 })).s === 404);
+
+    console.log('\nResponder: o servidor mede o tempo e calcula os pontos');
+    t('responder com alternativa inválida → 400', (await resp('TST100', 0, 7)).s === 400);
+    t('responder pergunta fora de ordem → 409', (await resp('TST100', 1, 0)).s === 409);
+    t('responder sem ter iniciado → 409', (await entrar('TST101', 'Dois'), (await resp('TST101', 0, 0)).s === 409));
+    r = await resp('TST100', 0, corretas[0], 1, { pontos:9999999, tempoMs:1, acertos:99 });   // campos de pontos mandados pelo "jogador" são ignorados
+    t('resposta certa → acertou, devolve a correta', r.s === 200 && r.j.acertou === true && r.j.correta === corretas[0] && r.j.fim === (n === 1), JSON.stringify(r.j));
+    t('pontos calculados pelo servidor (perto do máximo, não os 9.999.999 enviados)', r.j.pontos > maxPorPergunta * .8 && r.j.pontos <= maxPorPergunta, String(r.j.pontos));
+    t('responder a mesma pergunta de novo → 409 (não soma duas vezes)', (await resp('TST100', 0, corretas[0])).s === 409);
+    t('responder a próxima sem pedi-la → 409 (relógio parado)', (await resp('TST100', 1, corretas[1])).s === 409);
+    const antes = await linha('TST100');
+    t('relógio da pergunta fica parado entre as perguntas', antes.pergunta_inicio === null && antes.idx === 1);
+    r = await prox('TST100');
+    t('proxima entrega a pergunta 2 sem a resposta certa', r.s === 200 && r.j.idx === 1 && !JSON.stringify(r.j).includes('correta'), JSON.stringify(r.j));
+    const ini1 = (await linha('TST100')).pergunta_inicio;
+    await new Promise(x => setTimeout(x, 300));
+    r = await prox('TST100');
+    t('proxima repetida devolve a mesma pergunta sem reiniciar o relógio', r.s === 200 && r.j.idx === 1 && new Date((await linha('TST100')).pergunta_inicio).getTime() === new Date(ini1).getTime());
+
+    console.log('\nPontos caem com o tempo (relógio do servidor)');
+    await recuar('TST100', cfg.tempo / 2);
+    r = await certa('TST100', 1);
+    t('acerto na metade do tempo vale ~pct[1]', r.j.acertou && r.j.pontos <= valorEm(cfg, n, .5) && r.j.pontos >= valorEm(cfg, n, .5 + 4 / cfg.tempo), `${r.j.pontos} esperado ~${valorEm(cfg, n, .5)}`);
+    await prox('TST100');
+    await recuar('TST100', cfg.tempo + 1);   // dentro da folga de rede: vale o mínimo
+    r = await certa('TST100', 2);
+    t('acerto logo após o tempo (folga de rede) vale o mínimo, pct[2]', r.j.acertou && r.j.pontos === valorEm(cfg, n, 1), JSON.stringify(r.j));
+    const ptsTotal = r.j.placar;
+    if(n > 3){ await prox('TST100'); await recuar('TST100', cfg.tempo + 30); r = await certa('TST100', 3);
+      t('resposta muito depois do tempo (cliente adulterado) → tempo esgotado, 0 pontos, fim', r.j.tempoEsgotado === true && r.j.acertou === false && r.j.pontos === 0 && r.j.fim === true && r.j.placar === ptsTotal, JSON.stringify(r.j)); }
+    t('partida encerrada: não aceita mais respostas nem perguntas', (await resp('TST100', n > 3 ? 4 : 3, 0)).s === 409 && (await prox('TST100')).s === 409);
+
+    console.log('\nErrar ou deixar o tempo acabar encerra a partida');
+    await entrar('TST110', 'Erra'); await iniciar('TST110');
+    r = await resp('TST110', 0, (corretas[0] + 1) % 4);
+    t('resposta errada → 0 pontos, mostra a certa, fim e total do jogador', r.j.acertou === false && r.j.tempoEsgotado === false && r.j.correta === corretas[0] && r.j.pontos === 0 && r.j.fim === true && r.j.jogador.pontosTotal === 0, JSON.stringify(r.j));
+    await entrar('TST111', 'Dorme'); await iniciar('TST111');
+    r = await resp('TST111', 0, null);
+    t('sem alternativa (tempo esgotado no cliente) → tempoEsgotado e fim', r.j.tempoEsgotado === true && r.j.fim === true && r.j.pontos === 0, JSON.stringify(r.j));
+    const l111 = await linha('TST111');
+    t('tempo gasto na pergunta perdida = tempo cheio', l111.tempo === cfg.tempo * 1000, String(l111.tempo));
+
+    console.log('\nPartida completa e pontos parciais');
+    await entrar('TST120', 'Perfeito'); await iniciar('TST120');
+    for(let i = 0; i < n; i++){ if(i) await prox('TST120'); r = await certa('TST120', i); }
+    t('acertar tudo → fim na última, ' + n + ' acertos', r.j.fim === true && r.j.acertos === n && r.j.jogador.partidas === 1, JSON.stringify(r.j));
+    const l120 = await linha('TST120');
+    t('banco: finalizada, total e pontos batem com o placar', l120.finalizada && l120.total === n && l120.p === r.j.placar && l120.acertos === n);
+    t('ranking tem os pontos do servidor', (await c.get('/api/ranking?dia=1')).j.jogadores.find(j => j.matricula === 'TST120').pontosTotal === r.j.placar);
+    await entrar('TST121', 'Abandona'); await iniciar('TST121');
+    const r121 = await certa('TST121', 0);
+    t('quem abandona no meio fica com os pontos já ganhos', (await c.get('/api/ranking')).j.jogadores.find(j => j.matricula === 'TST121')?.pontosTotal === r121.j.pontos && r121.j.pontos > 0);
 
     console.log('\nDesempate no ranking (todos com 100.000 pontos)');
     await sql`DELETE FROM partidas WHERE matricula LIKE 'TST%'`;
-    await jogar('TST200', 'Zeca', { acertos:2, tempo:30000 });       // menos acertos
-    await jogar('TST201', 'Bia',  { acertos:3, tempo:50000 });       // mais acertos, mais lento
-    await jogar('TST202', 'Caio', { acertos:3, tempo:20000, atras:10 });       // mais acertos, mais rápido (vence)
-    await jogar('TST203', 'Ana',  { acertos:3, tempo:20000 });       // empate total com Caio, terminou depois
+    const empatar = async (m, nome, acertos, tempo, atras = 0) => {
+      await entrar(m, nome); await iniciar(m);
+      await sql`UPDATE partidas SET pontos=100000, acertos=${acertos}, total=5, tempo_ms=${tempo}, finalizada=TRUE, pergunta_inicio=NULL, fim = now() - make_interval(secs => ${atras}::float8) WHERE matricula=${m}`;
+    };
+    await empatar('TST200', 'Zeca', 2, 30000);         // menos acertos
+    await empatar('TST201', 'Bia', 3, 50000);          // mais acertos, mais lento
+    await empatar('TST202', 'Caio', 3, 20000, 10);     // mais acertos, mais rápido, terminou antes (vence)
+    await empatar('TST203', 'Ana', 3, 20000);          // empate total com Caio, terminou depois
     let rk = (await c.get('/api/ranking')).j.jogadores.filter(j => j.matricula.startsWith('TST')).map(j => j.nome);
     t('ordem: Caio > Ana > Bia > Zeca (acertos, tempo, quem terminou antes)', rk.join() === 'Caio,Ana,Bia,Zeca', rk.join());
-    t('tempo sobrepõe nome (Zeca ficou por último mesmo vindo do fim do alfabeto por acertos)', rk[3] === 'Zeca');
 
     console.log('\nVirada do dia com partida em andamento');
     await sql`DELETE FROM partidas WHERE matricula LIKE 'TST%'`;
-    await c.post('/api/login', { matricula:'TST300', nome:'Andando' });
-    await c.post('/api/login', { matricula:'TST301', nome:'Chegou depois' });
-    t('TST300 abre o dia 1 antes da virada', (await c.post('/api/partida/iniciar', { matricula:'TST300', dia:1 })).s === 200);
+    await entrar('TST300', 'Andando'); await entrar('TST301', 'Chegou depois');
+    t('TST300 abre o dia 1 antes da virada', (await iniciar('TST300')).s === 200);
     await putCfg(new Date(Date.now() - 20000).toISOString());
-    t('depois da virada: abrir o dia 1 é recusado', (await c.post('/api/partida/iniciar', { matricula:'TST301', dia:1 })).s === 409);
-    t('depois da virada: abrir o dia 2 funciona', (await c.post('/api/partida/iniciar', { matricula:'TST301', dia:2 })).s === 200);
-    r = await c.post('/api/partida', { matricula:'TST300', dia:1, pontos:150000, acertos:3, total:5, tempoMs:40000 });
-    t('quem já estava no dia 1 TERMINA normalmente (não é bloqueado)', r.s === 200, JSON.stringify(r));
-    t('…e os pontos ficam no dia 1', (await c.get('/api/ranking?dia=1')).j.jogadores.some(j => j.matricula === 'TST300' && j.pontosTotal === 150000));
+    t('depois da virada: abrir o dia 1 é recusado', (await iniciar('TST301', 1)).s === 409);
+    t('depois da virada: abrir o dia 2 funciona', (await iniciar('TST301', 2)).s === 200);
+    r = await certa('TST300', 0);
+    t('quem já estava no dia 1 CONTINUA e responde normalmente (não é bloqueado)', r.s === 200 && r.j.acertou, JSON.stringify(r));
+    t('…e recebe a próxima pergunta do dia 1', (await prox('TST300')).j?.idx === 1);
+    t('…e os pontos ficam no dia 1', (await c.get('/api/ranking?dia=1')).j.jogadores.some(j => j.matricula === 'TST300' && j.pontosTotal === r.j.pontos));
+    await putCfg(new Date(Date.now() - 3600e3).toISOString());
+    r = await certa('TST300', 1);
+    t('muito depois da virada (passou da tolerância) → 409 "dia encerrado"', r.s === 409 && /encerrado/.test(r.j.erro), JSON.stringify(r));
+    t('…mas os pontos já feitos continuam no ranking', (await c.get('/api/ranking?dia=1')).j.jogadores.some(j => j.matricula === 'TST300' && j.pontosTotal > 0));
     await putCfg(null);
 
     console.log('\nLiberar nova tentativa (admin)');
@@ -73,12 +150,17 @@ const t = (n, c, x = '') => { c ? ok++ : ruins.push(n + ' ' + x); console.log(c 
     t('liberar com login → 200', (await c.post('/api/admin/liberar', { matricula:'TST300', dia:1 }, A)).s === 200);
     t('liberar de novo (nada a apagar) → 404', (await c.post('/api/admin/liberar', { matricula:'TST300', dia:1 }, A)).s === 404);
     t('pontos do dia liberado saem do total', (await c.post('/api/login', { matricula:'TST300' })).j.jogador.pontosTotal === 0);
-    t('pode jogar de novo', (await c.post('/api/partida/iniciar', { matricula:'TST300', dia:1 })).s === 200);
+    t('pode jogar de novo', (await iniciar('TST300')).s === 200);
 
     console.log('\nCorridas simultâneas');
-    await c.post('/api/login', { matricula:'TST400', nome:'Corrida' });
-    const rs = await Promise.all(Array.from({ length:15 }, () => c.post('/api/partida/iniciar', { matricula:'TST400', dia:1 })));
+    await entrar('TST400', 'Corrida');
+    const rs = await Promise.all(Array.from({ length:15 }, () => iniciar('TST400')));
     t('15 inícios simultâneos: só 1 aceito', rs.filter(x => x.s === 200).length === 1 && rs.filter(x => x.s === 409).length === 14, rs.map(x => x.s).join());
+    const rr = await Promise.all(Array.from({ length:10 }, () => certa('TST400', 0)));
+    const aceitas = rr.filter(x => x.s === 200);
+    t('10 respostas simultâneas à mesma pergunta: só 1 conta', aceitas.length === 1 && rr.filter(x => x.s === 409).length === 9, rr.map(x => x.s).join());
+    const l400 = await linha('TST400');
+    t('pontos contados uma única vez', l400.p === aceitas[0].j.pontos && l400.acertos === 1 && l400.idx === 1, JSON.stringify(l400));
   } finally {
     await sql`DELETE FROM partidas WHERE matricula LIKE 'TST%'`; await sql`DELETE FROM jogadores WHERE matricula LIKE 'TST%'`;
     await sql`UPDATE config SET valor=${cfgAntes} WHERE chave='jogo'`;
@@ -87,4 +169,5 @@ const t = (n, c, x = '') => { c ? ok++ : ruins.push(n + ' ' + x); console.log(c 
     console.log('\nBanco após limpeza:', JSON.stringify(x), '| config restaurada:', cfgAntes);
   }
   console.log(`\n${ok} passaram, ${ruins.length} falharam`); ruins.forEach(x => console.log(' -', x));
+  if(ruins.length) process.exitCode = 1;
 })().catch(e => { console.error(e); process.exit(1); });
