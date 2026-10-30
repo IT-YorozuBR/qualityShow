@@ -16,7 +16,7 @@ const agora = ms => new Date(Date.now() + ms).toISOString();
 executar(async ({ c, A, sql }) => {
   /* ------------------------------------------------------ */
   grupo('Páginas estáticas');
-  for(const p of ['/', '/index.html', '/jogo.html', '/admin.html', '/estilo.css', '/common.js']){
+  for(const p of ['/', '/index.html', '/jogo.html', '/admin.html', '/dashboard.html', '/fabrica-fechada.png', '/estilo.css', '/common.js']){
     const r = await c.get(p); t(`GET ${p} → 200`, r.status === 200);
   }
   t('GET /index.html é HTML', (await c.get('/index.html')).tipo.includes('text/html'));

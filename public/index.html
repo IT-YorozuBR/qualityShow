@@ -38,6 +38,16 @@
     <button class="btn cheio grande" id="btn-comecar" style="max-width:520px">Iniciar jogo</button>
     <button class="btn grande btn-rank" id="btn-rank">Placar de líderes</button>
   </div>
+
+  <!-- Jogo fechado: fábrica de portões baixados (imagem em public/fabrica-fechada.png) -->
+  <div id="etapa-fechada" hidden>
+    <div class="fabrica" id="fabrica-arte">
+      <img src="fabrica-fechada.png" alt="Fábrica fechada à noite" width="1683" height="935">
+    </div>
+    <h2 id="fechada-titulo"></h2>
+    <p id="fechada-texto" class="fechada-texto"></p>
+    <button class="btn grande btn-rank" id="btn-rank2">Placar de líderes</button>
+  </div>
 </main>
 
 <div class="modal" id="modal-rank" hidden>
@@ -71,6 +81,7 @@ $('btn-comecar').addEventListener('click', async () => {
     sessionStorage.setItem('jogador', JSON.stringify(r.jogador));
     location.href = 'jogo.html';
   } catch(e){
+    if(e.codigo === 'FECHADO') return mostrarFechado(e.message.includes('encerrado') ? 'encerrado' : 'aguardando');
     // matrícula nova (404): pede o nome e espera o segundo clique
     if(e.status === 404 && $('campo-nome').hidden){
       $('campo-nome').hidden = false;
@@ -103,6 +114,18 @@ async function abrirRank(dia = ''){
   } catch(e){ lista.innerHTML = `<li class="vazio">${esc(e.message)}</li>`; }
 }
 $('btn-rank').addEventListener('click', () => abrirRank());
+$('btn-rank2').addEventListener('click', () => abrirRank());
+
+/* Jogo fechado: troca o login pela fábrica de portões baixados */
+function mostrarFechado(estado){
+  $('etapa-nome').hidden = true;
+  $('etapa-fechada').hidden = false;
+  $('fechada-titulo').textContent = estado === 'encerrado' ? 'Fábrica fechada' : 'Ainda não abrimos';
+  $('fechada-texto').textContent = estado === 'encerrado'
+    ? 'O jogo foi encerrado. Obrigado por participar! Veja o placar final.'
+    : 'O jogo ainda não começou. Volte em breve!';
+}
+api('GET', '/api/estado').then(r => { if(r.estado && r.estado !== 'aberto') mostrarFechado(r.estado); }).catch(() => {});
 $('abas-rank').addEventListener('click', ev => { const b = ev.target.closest('button'); if(b) abrirRank(b.dataset.dia); });
 $('fechar-rank').addEventListener('click', () => { $('modal-rank').hidden = true; });
 $('modal-rank').addEventListener('click', ev => { if(ev.target === ev.currentTarget) ev.currentTarget.hidden = true; });

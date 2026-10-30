@@ -74,6 +74,21 @@
     <!-- Coluna direita: pontuação -->
     <div>
       <section class="bloco">
+        <h2>Estado do jogo</h2>
+        <div class="jogo-estado" id="jogo-estado">Carregando...</div>
+        <div class="acoes">
+          <button type="button" class="btn cheio" id="jogo-iniciar" hidden>Iniciar jogo</button>
+          <button type="button" class="btn" id="jogo-encerrar" hidden>Encerrar jogo</button>
+          <button type="button" class="btn cheio" id="jogo-sim" hidden>Confirmar</button>
+          <button type="button" class="btn" id="jogo-nao" hidden>Cancelar</button>
+        </div>
+        <p class="dica" id="jogo-dica">Fechado, os participantes veem a fábrica fechada e ninguém joga. Ao encerrar, o placar e as estatísticas são salvos como um relatório.</p>
+        <div class="virada-status" id="jogo-msg"></div>
+        <a class="btn mini" href="dashboard.html">Abrir dashboard</a>
+        <ul class="lista-relat" id="lista-relat"></ul>
+      </section>
+
+      <section class="bloco">
         <h2>Virada do dia</h2>
         <label class="campo" for="c-virada">Data e hora em que começa o Dia 2</label>
         <input type="datetime-local" id="c-virada">
@@ -294,6 +309,35 @@ $('lib-btn').addEventListener('click', async () => {
     $('lib-mat').value = '';
   } catch(e){ msg.textContent = e.message; msg.className = 'virada-status aviso'; }
 });
+/* ---------- Estado do jogo: iniciar / encerrar (confirmação em dois passos, sem confirm()) ---------- */
+let jogoEstado = null, jogoAcao = null;
+function renderJogo(){
+  const e = jogoEstado; if(!e) return;
+  const rot = { aguardando:'Aguardando início', aberto:'Aberto', encerrado:'Encerrado' }[e.estado];
+  const quando = e.estado === 'aberto' && e.iniciadoEm ? ' desde ' + new Date(e.iniciadoEm).toLocaleString('pt-BR')
+    : e.estado === 'encerrado' && e.encerradoEm ? ' em ' + new Date(e.encerradoEm).toLocaleString('pt-BR') : '';
+  $('jogo-estado').innerHTML = `<span class="sel ${e.estado}">${rot}</span>${quando}`;
+  const confirmando = !!jogoAcao;
+  $('jogo-iniciar').hidden = confirmando || e.estado === 'aberto';
+  $('jogo-encerrar').hidden = confirmando || e.estado !== 'aberto';
+  $('jogo-sim').hidden = $('jogo-nao').hidden = !confirmando;
+  if(confirmando) $('jogo-msg').textContent = jogoAcao === 'encerrar'
+    ? 'Encerrar agora? Ninguém mais consegue jogar e o relatório é salvo.' : 'Abrir o jogo para os participantes?';
+  $('lista-relat').innerHTML = (e.relatorios || []).map(r =>
+    `<li><a href="dashboard.html?id=${r.id}">${esc(r.titulo)}</a> <span>${new Date(r.criadoEm).toLocaleString('pt-BR')}</span></li>`).join('');
+}
+function carregarJogo(){ return api('GET', '/api/admin/jogo').then(e => { jogoEstado = e; renderJogo(); }).catch(e => { $('jogo-estado').textContent = e.message; }); }
+$('jogo-iniciar').addEventListener('click', () => { jogoAcao = 'iniciar'; renderJogo(); });
+$('jogo-encerrar').addEventListener('click', () => { jogoAcao = 'encerrar'; renderJogo(); });
+$('jogo-nao').addEventListener('click', () => { jogoAcao = null; $('jogo-msg').textContent = ''; renderJogo(); });
+$('jogo-sim').addEventListener('click', async () => {
+  const acao = jogoAcao; jogoAcao = null;
+  try {
+    await api('POST', '/api/admin/jogo/' + acao);
+    $('jogo-msg').textContent = acao === 'encerrar' ? 'Jogo encerrado e relatório salvo.' : 'Jogo iniciado.';
+  } catch(e){ $('jogo-msg').textContent = e.message; }
+  carregarJogo();
+});
 $('c-virada-limpar').addEventListener('click', () => { $('c-virada').value = ''; lerConfig(); salvarConfig(); });
 
 $('form-perg').addEventListener('submit', salvarPergunta);
@@ -318,6 +362,7 @@ function carregarPainel(){
   $('painel').hidden = false;
   preencherConfig();
   renderPainel();
+  carregarJogo();
   api('GET', '/api/admin/perguntas').then(e => {
     todas[1] = e.perguntas[1]; todas[2] = e.perguntas[2];
     perguntas.splice(0, perguntas.length, ...todas[diaEdicao]);

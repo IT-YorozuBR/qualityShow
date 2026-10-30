@@ -5,13 +5,15 @@ const path = require('node:path');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const R = path.join(__dirname, '..') + path.sep;
-const { tokenAdmin, subirServidor, iniciarBanco, sql } = require('./_base.js');
+const { tokenAdmin, subirServidor, iniciarBanco, abrirJogo, sql } = require('./_base.js');
 const { valorEm } = require('../lib/app.js');
 let ok = 0, ruins = [];
 const t = (n, c, x = '') => { c ? ok++ : ruins.push(n + ' ' + x); console.log(c ? '  ✓' : '  ✗', n, c ? '' : x); };
 (async () => {
   const porta = 3900 + Math.floor(Math.random() * 90), B = `http://localhost:${porta}`;
   await iniciarBanco();
+  const estadoAntes = (await sql`SELECT valor FROM config WHERE chave='estado'`)[0];
+  await abrirJogo();
   const proc = await subirServidor(porta);
   const call = async (m, u, b, h = {}) => { const r = await fetch(B + u, { method:m, headers:{ 'Content-Type':'application/json', ...h }, body:b && JSON.stringify(b) }); const txt = await r.text(); let j = null; try { j = JSON.parse(txt); } catch {} return { s:r.status, j, txt }; };
   const cfgAntes = (await sql`SELECT valor FROM config WHERE chave='jogo'`)[0].valor;
@@ -121,7 +123,7 @@ const t = (n, c, x = '') => { c ? ok++ : ruins.push(n + ' ' + x); console.log(c 
     t('quem abandona no meio fica com os pontos já ganhos', (await c.get('/api/ranking')).j.jogadores.find(j => j.matricula === 'TST121')?.pontosTotal === r121.j.pontos && r121.j.pontos > 0);
 
     console.log('\nDesempate no ranking (todos com 100.000 pontos)');
-    await sql`DELETE FROM partidas WHERE matricula LIKE 'TST%'`;
+    await sql`DELETE FROM respostas WHERE matricula LIKE 'TST%'`; await sql`DELETE FROM partidas WHERE matricula LIKE 'TST%'`;
     const empatar = async (m, nome, acertos, tempo, atras = 0) => {
       await entrar(m, nome); await iniciar(m);
       await sql`UPDATE partidas SET pontos=100000, acertos=${acertos}, total=5, tempo_ms=${tempo}, finalizada=TRUE, pergunta_inicio=NULL, fim = now() - make_interval(secs => ${atras}::float8) WHERE matricula=${m}`;
@@ -172,6 +174,7 @@ const t = (n, c, x = '') => { c ? ok++ : ruins.push(n + ' ' + x); console.log(c 
     if(!nDia2) await sql`DELETE FROM perguntas WHERE dia=2 AND enunciado='TST dia 2'`;
     await sql`DELETE FROM partidas WHERE matricula LIKE 'TST%'`; await sql`DELETE FROM jogadores WHERE matricula LIKE 'TST%'`;
     await sql`UPDATE config SET valor=${cfgAntes} WHERE chave='jogo'`;
+    if(estadoAntes) await sql`UPDATE config SET valor=${estadoAntes.valor} WHERE chave='estado'`; else await sql`DELETE FROM config WHERE chave='estado'`;
     proc.kill();
     const [x] = await sql`SELECT (SELECT COUNT(*) FROM jogadores)::int j, (SELECT COUNT(*) FROM partidas)::int p, (SELECT COUNT(*) FROM perguntas)::int q`;
     console.log('\nBanco após limpeza:', JSON.stringify(x), '| config restaurada:', cfgAntes);

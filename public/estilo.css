@@ -382,6 +382,48 @@ a.btn{display:inline-block;text-decoration:none;color:inherit}
 .virada-status{margin-top:8px;font-weight:700}
 .virada-status.aviso{color:#ff8d96}
 
+/* Jogo fechado (index) */
+#etapa-fechada{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:56px 16px 16px;box-sizing:border-box;min-height:100vh;min-height:100dvh}
+#etapa-fechada[hidden]{display:none}
+#etapa-fechada h2{font-family:var(--fonte-titulo);font-weight:400;font-size:clamp(28px,6vw,52px);line-height:1;letter-spacing:.06em;text-transform:uppercase;color:var(--ouro)}
+.fechada-texto{font-size:clamp(16px,3vw,20px);font-weight:600;max-width:460px;opacity:.9}
+.fabrica{display:flex;justify-content:center;max-width:100%}
+/* a imagem encolhe para sobrar espaço ao título, ao texto e ao botão: tudo cabe na tela sem rolar */
+.fabrica img{width:auto;height:auto;max-width:100%;max-height:calc(100vh - 300px);max-height:calc(100dvh - 300px);min-height:140px;object-fit:contain;display:block;
+  /* bordas dissolvidas em vários degraus (sem corte visível) no azul-noite do palco */
+  -webkit-mask-image:radial-gradient(ellipse 70% 66% at 50% 46%,#000 0%,rgba(0,0,0,.92) 38%,rgba(0,0,0,.6) 62%,rgba(0,0,0,.25) 80%,transparent 100%);
+  mask-image:radial-gradient(ellipse 70% 66% at 50% 46%,#000 0%,rgba(0,0,0,.92) 38%,rgba(0,0,0,.6) 62%,rgba(0,0,0,.25) 80%,transparent 100%);}
+.fabrica .fumaca{animation:fumaca 4s ease-in-out infinite}
+@keyframes fumaca{0%,100%{transform:translateY(0);opacity:.8}50%{transform:translateY(-6px);opacity:.4}}
+
+/* Admin: estado do jogo e relatórios */
+.jogo-estado{font-size:18px;font-weight:700;margin-bottom:10px}
+.sel{display:inline-block;padding:2px 10px;font-family:var(--fonte-titulo);letter-spacing:.06em;text-transform:uppercase;border:2px solid var(--ouro)}
+.sel.aberto{background:var(--acerto);border-color:var(--acerto);color:#032410}
+.sel.encerrado{background:var(--erro);border-color:var(--erro);color:#fff}
+.lista-relat{list-style:none;margin-top:10px;display:grid;gap:4px}
+.lista-relat li{display:flex;justify-content:space-between;gap:8px;font-weight:600}
+.lista-relat a{color:var(--ouro)}.lista-relat span{opacity:.7;font-size:14px}
+
+/* Dashboard */
+.dash-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px}
+.dash-card{background:rgba(5,5,28,.82);border:2px solid var(--ouro);padding:12px}
+.dash-card b{display:block;font-family:var(--fonte-titulo);font-weight:400;font-size:32px;color:var(--ouro)}
+.dash-card span{font-size:14px;opacity:.8;text-transform:uppercase;letter-spacing:.06em}
+.podio{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;align-items:end}
+.podio div{border:2px solid var(--ouro);padding:10px;text-align:center;background:#07072e;min-width:0}
+.podio div:nth-child(1){order:2;padding-top:26px;background:#2a2200}
+.podio div:nth-child(2){order:1}.podio div:nth-child(3){order:3}
+.podio .nm{display:block;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.podio .pts{font-family:var(--fonte-titulo);color:#ffb400;font-size:20px}
+.podio .pos{font-family:var(--fonte-titulo);color:var(--ouro);font-size:28px;display:block}
+.barra{height:14px;background:#03031a;border:1px solid #34347a;margin:4px 0 2px}
+.barra i{display:block;height:100%;background:var(--acerto)}
+.dq{padding:10px 0;border-top:1px solid #34347a}
+.dq p{font-weight:700}.dq small{opacity:.75}
+.escolhas{display:flex;gap:6px;margin-top:4px;font-size:14px;font-weight:700}
+.escolhas span{padding:1px 8px;border:1px solid #34347a}.escolhas .ok{border-color:var(--acerto);color:var(--acerto)}
+
 /* Login do administrador */
 #login-admin{display:flex;align-items:center;justify-content:center;padding:20px}
 .login-caixa{width:min(420px,100%)}

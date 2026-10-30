@@ -27,7 +27,7 @@ async function api(metodo, url, corpo){
     });
   } catch { throw new Error('Sem conexão com o servidor.'); }
   const dados = await r.json().catch(() => ({}));
-  if(!r.ok) throw Object.assign(new Error(dados.erro || 'Erro no servidor.'), { status:r.status });
+  if(!r.ok) throw Object.assign(new Error(dados.erro || 'Erro no servidor.'), { status:r.status, codigo:dados.codigo });
   return dados;
 }
 

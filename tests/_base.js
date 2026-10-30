@@ -22,7 +22,7 @@ const ENV_TESTE = {
 };
 
 const ARQ_BACKUP = path.join(__dirname, '.backup-banco.json');
-const TABELAS = ['perguntas', 'config', 'jogadores', 'partidas'];
+const TABELAS = ['perguntas', 'config', 'jogadores', 'partidas', 'respostas', 'relatorios'];
 
 async function fazerBackup(){
   const b = {};
@@ -34,14 +34,22 @@ async function fazerBackup(){
 /* Apaga tudo e reinsere o backup (tabelas pequenas; ids originais preservados) */
 async function restaurar(b = JSON.parse(fs.readFileSync(ARQ_BACKUP, 'utf8'))){
   await sql.transaction([
-    sql`DELETE FROM partidas`, sql`DELETE FROM jogadores`, sql`DELETE FROM perguntas`, sql`DELETE FROM config`,
+    sql`DELETE FROM respostas`, sql`DELETE FROM relatorios`, sql`DELETE FROM partidas`, sql`DELETE FROM jogadores`, sql`DELETE FROM perguntas`, sql`DELETE FROM config`,
     ...b.config.map(r => sql`INSERT INTO config(chave, valor) VALUES(${r.chave}, ${r.valor})`),
     ...b.perguntas.map(r => sql`INSERT INTO perguntas(id, ordem, enunciado, alts, correta, dia) VALUES(${r.id}, ${r.ordem}, ${r.enunciado}, ${r.alts}, ${r.correta}, ${r.dia})`),
     ...b.jogadores.map(r => sql`INSERT INTO jogadores(matricula, nome, pontos_total, melhor, partidas, criado_em, atualizado_em) VALUES(${r.matricula}, ${r.nome}, ${r.pontos_total}, ${r.melhor}, ${r.partidas}, ${r.criado_em}, ${r.atualizado_em})`),
+    ...b.relatorios.map(r => sql`INSERT INTO relatorios(id, criado_em, titulo, dados) VALUES(${r.id}, ${r.criado_em}, ${r.titulo}, ${r.dados})`),
+    ...b.respostas.map(r => sql`INSERT INTO respostas(id, matricula, dia, idx, alt, acertou, tempo_ms, pontos, criado_em) VALUES(${r.id}, ${r.matricula}, ${r.dia}, ${r.idx}, ${r.alt}, ${r.acertou}, ${r.tempo_ms}, ${r.pontos}, ${r.criado_em})`),
     ...b.partidas.map(r => sql`INSERT INTO partidas(id, matricula, pontos, acertos, total, criado_em, dia, tempo_ms, finalizada, fim, idx, pergunta_inicio)
       VALUES(${r.id}, ${r.matricula}, ${r.pontos}, ${r.acertos}, ${r.total}, ${r.criado_em}, ${r.dia}, ${r.tempo_ms ?? 0}, ${r.finalizada ?? true}, ${r.fim ?? null}, ${r.idx ?? 0}, ${r.pergunta_inicio ?? null})`)
   ]);
   fs.rmSync(ARQ_BACKUP, { force:true });
+}
+
+/* O jogo nasce fechado; os testes o abrem (e podem fechá-lo de novo pela API) */
+async function abrirJogo(){
+  const v = JSON.stringify({ estado:'aberto', iniciadoEm:new Date().toISOString(), encerradoEm:null });
+  await sql`INSERT INTO config(chave, valor) VALUES('estado', ${v}) ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor`;
 }
 
 /* Servidor no MESMO processo dos testes (o PGlite só admite um processo); devolve { kill() } */
@@ -79,6 +87,7 @@ async function executar(corpo){
   const limpar = async () => { try { proc && proc.kill(); } catch {} await restaurar(); };
   process.on('SIGINT', async () => { await limpar(); process.exit(130); });
   try {
+    await abrirJogo();
     proc = await subirServidor(porta);
     const c = criarCliente(`http://localhost:${porta}`);
     const A = await tokenAdmin(c);
@@ -88,4 +97,4 @@ async function executar(corpo){
   return codigo;
 }
 
-module.exports = { executar, subirServidor, iniciarBanco, sql, tokenAdmin, SENHA_TESTE, ENV_TESTE };
+module.exports = { abrirJogo, executar, subirServidor, iniciarBanco, sql, tokenAdmin, SENHA_TESTE, ENV_TESTE };

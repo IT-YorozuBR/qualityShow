@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard · Quality show</title>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+<div class="palco" aria-hidden="true"><div class="feixe a"></div><div class="feixe b"></div><div class="feixe c"></div><div class="feixe d"></div></div>
+<main class="tela" style="padding:20px;max-width:1000px;margin:0 auto">
+  <header class="painel-topo">
+    <h1>Dashboard</h1>
+    <a class="btn mini" href="admin.html">Voltar ao painel</a>
+  </header>
+  <label class="campo" for="sel-rel">Relatório</label>
+  <select id="sel-rel"><option value="vivo">Ao vivo</option></select>
+  <p class="virada-status" id="msg"></p>
+
+  <div id="conteudo" hidden>
+    <div class="abas" id="abas-esc" style="margin-top:14px">
+      <button class="btn mini ativo" data-e="geral">Geral</button>
+      <button class="btn mini" data-e="1">Dia 1</button>
+      <button class="btn mini" data-e="2">Dia 2</button>
+    </div>
+    <div class="dash-cards" id="cards"></div>
+    <section class="bloco"><h2>Top 3</h2><div class="podio" id="podio"></div></section>
+    <section class="bloco" style="margin-top:18px"><h2>Ranking</h2><ol class="rank" id="ranking"></ol></section>
+    <section class="bloco" style="margin-top:18px"><h2>Perguntas</h2><div id="perguntas"></div></section>
+  </div>
+</main>
+<script src="common.js"></script>
+<script>
+let rel = null, escopo = 'geral';
+const pct = x => Math.round(x * 100) + '%';
+const seg = ms => (ms / 1000).toFixed(1).replace('.', ',') + ' s';
+
+function render(){
+  const d = rel.dados, r = d.resumo[escopo];
+  const card = (v, t) => `<div class="dash-card"><b>${v}</b><span>${t}</span></div>`;
+  $('cards').innerHTML = card(r.jogadores, 'Participantes') + card(r.partidas, 'Partidas') + card(fmt(r.mediaPontos), 'Média de pontos') +
+    card(fmt(r.melhorPontos), 'Melhor pontuação') + card(pct(r.taxaAcerto), 'Taxa de acerto') + card(seg(r.tempoMedioMs), 'Tempo médio/resposta');
+  const lista = d.ranking[escopo];
+  $('podio').innerHTML = lista.slice(0, 3).map((j, i) => `<div><span class="pos">${i + 1}º</span><span class="nm">${esc(j.nome)}</span><span class="pts">${fmt(j.pontos)}</span></div>`).join('') || '<p>Ninguém jogou.</p>';
+  $('ranking').innerHTML = lista.map((j, i) =>
+    `<li class="rk"><span class="pos">${i + 1}º</span><span class="nm">${esc(j.nome)} <small>(${esc(j.matricula)})</small></span><span class="pts">${fmt(j.pontos)}</span></li>`).join('') || '<li class="vazio">Ninguém jogou.</li>';
+  const dias = escopo === 'geral' ? [1, 2] : [Number(escopo)];
+  $('perguntas').innerHTML = dias.map(dia => (escopo === 'geral' ? `<h3 class="ouro">Dia ${dia}</h3>` : '') +
+    (d.perguntas[dia] || []).map((q, i) => `<div class="dq"><p>${i + 1}. ${esc(q.enunciado)}</p>
+      <div class="barra"><i style="width:${pct(q.taxaAcerto)}"></i></div>
+      <small>${pct(q.taxaAcerto)} de acerto · ${q.acertos}/${q.respondidas} respostas · ${seg(q.tempoMedioMs)} em média</small>
+      <div class="escolhas">${q.alts.map((a, k) => `<span class="${k === q.correta ? 'ok' : ''}" title="${esc(a)}">${'ABCD'[k]}: ${q.escolhas[k]}</span>`).join('')}</div></div>`).join('')).join('');
+}
+
+async function abrir(id){
+  $('msg').textContent = 'Carregando...';
+  try {
+    rel = await api('GET', '/api/admin/relatorio?id=' + encodeURIComponent(id));
+    $('msg').textContent = rel.id ? `${rel.titulo} — gerado em ${new Date(rel.criadoEm).toLocaleString('pt-BR')}` : 'Dados ao vivo, calculados agora.';
+    $('conteudo').hidden = false;
+    render();
+  } catch(e){
+    $('conteudo').hidden = true;
+    $('msg').textContent = e.status === 401 ? 'Faça login no painel do administrador primeiro.' : e.message;
+  }
+}
+$('sel-rel').addEventListener('change', ev => abrir(ev.target.value));
+$('abas-esc').addEventListener('click', ev => {
+  const b = ev.target.closest('button'); if(!b) return;
+  escopo = b.dataset.e;
+  document.querySelectorAll('#abas-esc button').forEach(x => x.classList.toggle('ativo', x === b));
+  render();
+});
+(async () => {
+  const id = new URLSearchParams(location.search).get('id') || 'vivo';
+  try {
+    const j = await api('GET', '/api/admin/jogo');
+    $('sel-rel').insertAdjacentHTML('beforeend', j.relatorios.map(r => `<option value="${r.id}">${esc(r.titulo)} · ${new Date(r.criadoEm).toLocaleString('pt-BR')}</option>`).join(''));
+    $('sel-rel').value = id;
+  } catch {}
+  abrir(id);
+})();
+</script>
+</body>
+</html>

@@ -10,7 +10,8 @@
     "start": "node server.js",
     "dev": "node server.js",
     "dev:perguntas": "node scripts/carregar-perguntas-exemplo.js",
-    "test": "node tests/funcional.js && node tests/regras.js",
+    "test": "node tests/funcional.js && node tests/regras.js && node tests/jogo.js",
+    "test:jogo": "node tests/jogo.js",
     "test:regras": "node tests/regras.js",
     "test:perf": "node tests/performance.js",
     "build": "node --check server.js && node --check lib/app.js && node --check \"api/[...rota].js\""
