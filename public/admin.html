@@ -82,7 +82,7 @@
           <button type="button" class="btn cheio" id="jogo-sim" hidden>Confirmar</button>
           <button type="button" class="btn" id="jogo-nao" hidden>Cancelar</button>
         </div>
-        <p class="dica" id="jogo-dica">Fechado, os participantes veem a fábrica fechada e ninguém joga. Ao encerrar, o placar e as estatísticas são salvos como um relatório.</p>
+        <p class="dica" id="jogo-dica">Fechado, os participantes veem a fábrica fechada e ninguém joga. Ao encerrar, o placar e as estatísticas são salvos como um relatório. Ao iniciar de novo, começa uma nova rodada: o placar zera e todos podem jogar outra vez.</p>
         <div class="virada-status" id="jogo-msg"></div>
         <a class="btn mini" href="dashboard.html">Abrir dashboard</a>
         <ul class="lista-relat" id="lista-relat"></ul>
@@ -322,7 +322,7 @@ function renderJogo(){
   $('jogo-encerrar').hidden = confirmando || e.estado !== 'aberto';
   $('jogo-sim').hidden = $('jogo-nao').hidden = !confirmando;
   if(confirmando) $('jogo-msg').textContent = jogoAcao === 'encerrar'
-    ? 'Encerrar agora? Ninguém mais consegue jogar e o relatório é salvo.' : 'Abrir o jogo para os participantes?';
+    ? 'Encerrar agora? Ninguém mais consegue jogar e o relatório é salvo.' : (jogoEstado.estado === 'encerrado' ? 'Iniciar nova rodada? O placar zera e todos podem jogar de novo (a rodada anterior fica salva nos relatórios).' : 'Abrir o jogo para os participantes?');
   $('lista-relat').innerHTML = (e.relatorios || []).map(r =>
     `<li><a href="dashboard.html?id=${r.id}">${esc(r.titulo)}</a> <span>${new Date(r.criadoEm).toLocaleString('pt-BR')}</span></li>`).join('');
 }
@@ -333,8 +333,8 @@ $('jogo-nao').addEventListener('click', () => { jogoAcao = null; $('jogo-msg').t
 $('jogo-sim').addEventListener('click', async () => {
   const acao = jogoAcao; jogoAcao = null;
   try {
-    await api('POST', '/api/admin/jogo/' + acao);
-    $('jogo-msg').textContent = acao === 'encerrar' ? 'Jogo encerrado e relatório salvo.' : 'Jogo iniciado.';
+    const r = await api('POST', '/api/admin/jogo/' + acao);
+    $('jogo-msg').textContent = acao === 'encerrar' ? 'Jogo encerrado e relatório salvo.' : 'Jogo iniciado.'+(r.novaRodada ? ' Placar zerado: nova rodada.' : '');
   } catch(e){ $('jogo-msg').textContent = e.message; }
   carregarJogo();
 });

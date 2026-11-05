@@ -69,7 +69,11 @@ executar(async ({ c, A, sql }) => {
   t('relatório manual', (await c.post('/api/admin/relatorios', {}, A)).status === 200);
 
   grupo('Iniciar de novo');
-  t('iniciar → 200 aberto', (await c.post('/api/admin/jogo/iniciar', {}, A)).json.estado === 'aberto');
+  r = await c.post('/api/admin/jogo/iniciar', {}, A);
+  t('iniciar → 200 aberto, nova rodada', r.json.estado === 'aberto' && r.json.novaRodada === true, r.txt);
+  t('placar zerado', (await c.get('/api/ranking')).json.jogadores.length === 0);
+  t('quem já jogou pode jogar de novo', (await c.post('/api/partida/iniciar', { matricula:'TST900', dia })).status === 200);
+  t('relatório da rodada anterior continua salvo', (await c.get('/api/admin/relatorio?id=' + id, A)).json.dados.ranking.geral.length === 2);
   t('login volta a funcionar', (await c.post('/api/login', { matricula:'TST900' })).status === 200);
   t('iniciar exige login', (await c.post('/api/admin/jogo/iniciar', {})).status === 401);
 
